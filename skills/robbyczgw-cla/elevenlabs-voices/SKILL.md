@@ -1,6 +1,6 @@
 ---
 name: elevenlabs-voices
-version: 2.0.4
+version: 2.0.6
 description: High-quality voice synthesis with 18 personas, 32 languages, sound effects, batch processing, and voice design using ElevenLabs API.
 tags: [tts, voice, speech, elevenlabs, audio, sound-effects, voice-design, multilingual]
 ---
@@ -241,7 +241,7 @@ Edit `pronunciations.json`:
   "rules": [
     {
       "word": "OpenClaw",
-      "replacement": "Clawd bot",
+      "replacement": "Open Claw",
       "comment": "Pronounce as two words"
     },
     {
