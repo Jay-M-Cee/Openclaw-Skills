@@ -1,6 +1,6 @@
 {
   "name": "endpoints-skill",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "type": "module",
   "description": "Endpoints API toolkit for MoltBot",
   "main": "src/index.js",

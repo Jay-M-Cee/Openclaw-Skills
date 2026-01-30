@@ -97,6 +97,30 @@ For granular control, import specific functions. See [references/api-reference.m
 | `scanText(text, prompt)` | Scan text content with AI extraction |
 | `scanFile(filePath, prompt)` | Scan file (PDF, images, docs) with AI |
 
+### Prompt Routing
+
+The `prompt` parameter controls which endpoint items are added to:
+
+| Prompt Format | Behavior | Example |
+|---------------|----------|---------|
+| `category name` | Creates new endpoint with AI-generated slug | `"job tracker"` → `/job-tracker/january-2026` |
+| `category - slug` | Adds to existing endpoint | `"job-tracker - usds"` → `/job-tracker/usds` |
+
+**Examples:**
+
+```typescript
+// Create new endpoint (AI determines slug based on content)
+await scanText('Applied to Acme Corp', 'job tracker');
+
+// Add to existing endpoint /job-tracker/usds
+await scanText('Follow-up interview scheduled', 'job-tracker - usds');
+
+// Add to existing endpoint /invoices/acme-corp
+await scanFile('./invoice.pdf', 'invoices - acme-corp');
+```
+
+Use `category - slug` format when adding multiple documents to the same endpoint.
+
 ### Item Functions
 
 | Function | Purpose |
