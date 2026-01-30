@@ -3,9 +3,15 @@
   "slug": "luma-event-manager",
   "displayName": "Luma Event Manager",
   "latest": {
-    "version": "2.1.0",
-    "publishedAt": 1769734737613,
-    "commit": "https://github.com/clawdbot/skills/commit/69ecf4baba6b6860eb0775f92aec142a0e5d067c"
+    "version": "2.1.1",
+    "publishedAt": 1769735050059,
+    "commit": null
   },
-  "history": []
+  "history": [
+    {
+      "version": "2.1.0",
+      "publishedAt": 1769734737613,
+      "commit": "https://github.com/clawdbot/skills/commit/69ecf4baba6b6860eb0775f92aec142a0e5d067c"
+    }
+  ]
 }
