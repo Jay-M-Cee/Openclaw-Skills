@@ -10,7 +10,7 @@ CONFIG_FILE="$PROJECT_DIR/examples/config.json"
 CONDA_PATH="/opt/anaconda3/bin/conda"
 ENV_NAME="mlx_env1"
 
-export PATH="/usr/bin:/bin:/usr/sbin:/sbin:/usr/local/bin:/opt/homebrew/bin:$PATH"
+export PATH="/usr/sbin:/usr/bin:/bin:/usr/sbin:/sbin:/usr/local/bin:/opt/homebrew/bin:$PATH"
 
 # Colors
 RED='\033[0;31m'
@@ -44,7 +44,6 @@ EOF
 # ---------- Parse Arguments ----------
 RESUME_ID=""
 CUSTOM_CONFIG=""
-TASK_DESCRIPTION=""
 DRY_RUN=false
 USE_PLAN=true
 USE_SKILLS=true
@@ -81,15 +80,16 @@ while [[ $# -gt 0 ]]; do
             exit 1
             ;;
         *)
-            TASK_DESCRIPTION="$*"
+            # Remaining arguments are the task description
             break
             ;;
     esac
 done
 
 # ---------- Validation ----------
-if [[ -z "$RESUME_ID" && -z "$TASK_DESCRIPTION" ]]; then
+if [[ -z "$RESUME_ID" && $# -eq 0 ]]; then
     log_error "Task or --resume required"
+    show_help
     exit 1
 fi
 
@@ -106,46 +106,53 @@ if [[ ! -d "$PROJECT_DIR" ]]; then
 fi
 
 # ---------- Update Config (Skills-Compatible) ----------
+# Use Python to safely update JSON (handles UTF-8 correctly)
 update_config() {
+    # Read task from args or stdin
+    local task_arg="$*"
+    local use_plan="$USE_PLAN"
+    local use_skills="$USE_SKILLS"
+    local resume_id="$RESUME_ID"
+
     python3 << PYEOF
 import json
+import os
 import sys
 
 config_path = '$CONFIG_FILE'
-with open(config_path, 'r') as f:
+
+# Read existing config
+with open(config_path, 'r', encoding='utf-8') as f:
     data = json.load(f)
 
-# Update task if provided
-task = '''${TASK_DESCRIPTION}'''
-if task:
-    data['agent']['task'] = task
+# Update task from environment (safer for UTF-8)
+task_arg = '''$task_arg'''
+if task_arg:
+    data['agent']['task'] = task_arg
 
 # Update resume settings
-resume_id = '''${RESUME_ID}'''
+resume_id = '''$resume_id'''
 if resume_id:
     data['agent']['resume'] = True
     data['agent']['agent_id'] = resume_id
 
-# Update feature flags (skills requires plan)
-use_plan = '''${USE_PLAN}'''
-use_skills = '''${USE_SKILLS}'''
+# Update feature flags
+use_plan = '''$use_plan'''
+use_skills = '''$use_skills'''
 
 data['agent']['use_plan'] = (use_plan == 'True')
 data['agent']['use_skills'] = (use_skills == 'True')
 
-# Ensure skills_dir exists if skills enabled
+# Ensure skills settings exist
 if data['agent']['use_skills']:
-    skills_dir = data['agent'].get('skills_dir', 'skills')
     if not data['agent'].get('skills_max_chars'):
         data['agent']['skills_max_chars'] = 4000
 
-with open(config_path, 'w') as f:
-    json.dump(data, f, indent=2)
+# Write back with UTF-8 encoding
+with open(config_path, 'w', encoding='utf-8') as f:
+    json.dump(data, f, indent=2, ensure_ascii=False)
 
-print('Config updated: plan={}, skills={}'.format(
-    data['agent']['use_plan'], 
-    data['agent']['use_skills']
-))
+print('Config updated successfully')
 PYEOF
 }
 
@@ -185,7 +192,7 @@ main() {
 
     if [[ "$DRY_RUN" == true ]]; then
         log_info "[DRY RUN]"
-        echo "  Task: ${TASK_DESCRIPTION:-'(resume) ${RESUME_ID}'}"
+        echo "  Task: ${*:-(resume) ${RESUME_ID}}"
         echo "  Plan: $USE_PLAN"
         echo "  Skills: $USE_SKILLS"
         echo "  Command: $CONDA_PATH run -n $ENV_NAME python examples/main.py"
