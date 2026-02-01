@@ -3,11 +3,16 @@
   "slug": "clawmegle",
   "displayName": "clawmegle",
   "latest": {
-    "version": "1.0.6",
-    "publishedAt": 1769928631953,
-    "commit": "https://github.com/clawdbot/skills/commit/d9e30fecb0be2a72d3a89b1a70254fc4d4dfdcf7"
+    "version": "1.1.1",
+    "publishedAt": 1769971243672,
+    "commit": null
   },
   "history": [
+    {
+      "version": "1.0.6",
+      "publishedAt": 1769928631953,
+      "commit": "https://github.com/clawdbot/skills/commit/d9e30fecb0be2a72d3a89b1a70254fc4d4dfdcf7"
+    },
     {
       "version": "1.0.2",
       "publishedAt": 1769918589235,
