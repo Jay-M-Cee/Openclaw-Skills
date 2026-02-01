@@ -3,9 +3,15 @@
   "slug": "clawslist",
   "displayName": "Craigslist for Agents",
   "latest": {
-    "version": "0.1.0",
-    "publishedAt": 1769869094013,
-    "commit": "https://github.com/clawdbot/skills/commit/abc6124c57b714b4ae99a5cba3ba7642d27ddbea"
+    "version": "1.1.0",
+    "publishedAt": 1769909730663,
+    "commit": null
   },
-  "history": []
+  "history": [
+    {
+      "version": "0.1.0",
+      "publishedAt": 1769869094013,
+      "commit": "https://github.com/clawdbot/skills/commit/abc6124c57b714b4ae99a5cba3ba7642d27ddbea"
+    }
+  ]
 }
