@@ -7,11 +7,15 @@ This project is designed to be **production-friendly**:
 - Rate-limited per aircraft (cooldowns) with persistent state
 - Optional photo attachment via Planespotters (public API)
 
+## Example alert
+
+![Example WhatsApp alert](assets/example-alert.jpg)
+
 ## What you need
 
 - An ADS-B receiver feeding **SBS/BaseStation** on TCP (commonly `:30003`)
 - (Optional) `tar1090`/`readsb` HTTP endpoint for enrichment, e.g.:
-  - `http://<host>/tar1090/data/aircraft.json`
+  - `http://TAR1090_HOST/tar1090/data/aircraft.json`
 - Clawdbot (aka Moltbot) running with WhatsApp configured
 
 ## Data flow (how it works)
@@ -50,12 +54,12 @@ Run the checker directly:
 
 ```bash
 python3 skills/public/adsb-overhead/scripts/sbs_overhead_check.py \
-  --host <SBS_HOST> --port 30003 \
-  --home-lat <LAT> --home-lon <LON> \
+  --host SBS_HOST --port 30003 \
+  --home-lat LAT --home-lon LON \
   --radius-km 2 \
   --listen-seconds 6 \
   --cooldown-min 15 \
-  --aircraft-json-url http://<TAR1090_HOST>/tar1090/data/aircraft.json \
+  --aircraft-json-url http://TAR1090_HOST/tar1090/data/aircraft.json \
   --photo --photo-mode download --photo-size large \
   --output jsonl
 ```
@@ -115,7 +119,7 @@ chmod 600 ~/.clawdbot/adsb-overhead/config.json
 
 ## Notes on Flightradar24 links
 
-The alert text can include a Flightradar24 link using callsign (`https://www.flightradar24.com/<CALLSIGN>`). This is best-effort. A reliable fallback tracking link is ADSBexchange by hex.
+The alert text can include a Flightradar24 link using callsign (`https://www.flightradar24.com/CALLSIGN`). This is best-effort. A reliable fallback tracking link is ADSBexchange by hex.
 
 ## License
 
