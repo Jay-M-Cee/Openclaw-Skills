@@ -1,11 +1,11 @@
 ---
 name: Agent Wallet
-description: Give your AI agent its own blockchain wallet without ever exposing private keys.
+description: The agent's wallet. Use this skill to safely create a wallet the agent can use for transfers, swaps, and any EVM chain transaction.
 ---
 
-# Agent Wallet - Give Your Agent a Wallet with Policies
+# Agent Wallet
 
-AgentWallet gives your AI agent its own blockchain wallet -- without ever exposing private keys. You create a wallet, set spending policies, and your agent can transfer tokens and interact with smart contracts within the boundaries you define.
+Use this skill to safely create a wallet the agent can use for transfers, swaps, and any EVM chain transaction without ever exposing private keys to the agent. Create a wallet, set spending policies, and your agent can transfer tokens, do swaps, and interact with smart contracts within the boundaries you define.
 
 **The agent never sees the private key.** All transactions are executed server-side through a smart account. The wallet owner controls what the agent can do via configurable policies.
 
@@ -32,7 +32,7 @@ curl -X POST "${SAFESKILLS_API_URL:-https://safeskill-production.up.railway.app}
   -d '{
     "type": "EVM_WALLET",
     "memo": "My agent wallet",
-    "chainId": 11155111
+    "chainId": 84532
   }'
 ```
 
@@ -86,7 +86,43 @@ curl -X POST "${SAFESKILLS_API_URL:-https://safeskill-production.up.railway.app}
   }'
 ```
 
-### 5. Send Arbitrary Transaction
+### 5. Swap Tokens
+
+Swap one token for another using DEX liquidity (powered by 0x).
+
+```bash
+# Preview a swap (no execution, just pricing)
+curl -X POST "${SAFESKILLS_API_URL:-https://safeskill-production.up.railway.app}/api/skills/evm-wallet/swap/preview" \
+  -H "Authorization: Bearer <API_KEY>" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "sellToken": "0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE",
+    "buyToken": "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48",
+    "sellAmount": "0.1",
+    "chainId": 1
+  }'
+
+# Execute a swap
+curl -X POST "${SAFESKILLS_API_URL:-https://safeskill-production.up.railway.app}/api/skills/evm-wallet/swap/execute" \
+  -H "Authorization: Bearer <API_KEY>" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "sellToken": "0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE",
+    "buyToken": "0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48",
+    "sellAmount": "0.1",
+    "chainId": 1,
+    "slippageBps": 100
+  }'
+```
+
+- `sellToken` / `buyToken`: Token contract addresses. Use `0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE` for native ETH.
+- `sellAmount`: Human-readable amount to sell (e.g. `"0.1"` for 0.1 ETH).
+- `chainId`: The chain to swap on (1 = Ethereum, 137 = Polygon, 42161 = Arbitrum, 10 = Optimism, 8453 = Base, etc.).
+- `slippageBps`: Optional slippage tolerance in basis points (100 = 1%). Defaults to 100.
+
+The preview endpoint returns expected buy amount, route info, and fees without executing. The execute endpoint performs the actual swap through the smart account, handling ERC20 approvals automatically.
+
+### 6. Send Arbitrary Transaction
 
 Interact with any smart contract by sending custom calldata.
 
@@ -118,11 +154,38 @@ The wallet owner controls what the agent can do by setting policies via the clai
 
 If no policies are set, all actions are allowed by default. Once the owner claims the wallet and adds policies, the agent operates within those boundaries.
 
+## Re-linking (Recovering API Access)
+
+If the agent loses its API key, the wallet owner can generate a **re-link token** from the frontend. The agent then exchanges this token for a new API key.
+
+**How it works:**
+1. The user generates a re-link token from the wallet detail page in the frontend
+2. The user gives the token to the agent (e.g. by pasting it in chat)
+3. The agent calls the re-link endpoint to exchange the token for a new API key
+
+```bash
+curl -X POST "${SAFESKILLS_API_URL:-https://safeskill-production.up.railway.app}/api/secrets/relink" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "relinkToken": "<TOKEN_FROM_USER>",
+    "apiKeyName": "Re-linked API Key"
+  }'
+```
+
+Response includes:
+- `secret` -- the wallet metadata (id, type, address, chainId, etc.)
+- `apiKey.key` -- the new API key to use as Bearer token for all future requests
+
+**Important:** Re-link tokens are one-time use and expire after 10 minutes. No authentication is required on this endpoint -- the token itself is the authorization.
+
+If a user tells you they have a re-link token, use this endpoint to regain access to the wallet. Store the returned API key and use it for all subsequent requests.
+
 ## Important Notes
 
+- **No gas needed.** A paymaster is fully set up -- all transaction gas fees are sponsored automatically. The wallet does not need ETH for gas.
 - **Never try to access raw secret values.** The private key stays server-side -- that's the whole point.
 - Always store the API key from wallet creation -- it's the only way to authenticate.
 - Always share the claim URL with the user after creating a wallet.
-- The default chain ID `11155111` is Ethereum Sepolia testnet. Adjust as needed.
+- The default chain ID is `84532` (Base Sepolia testnet). Adjust as needed.
 - If a transaction is rejected, it may be blocked by a policy. Tell the user to check their policy settings via the claim URL.
 - If a transaction requires approval, it will return `status: "pending_approval"`. The wallet owner will receive a Telegram notification to approve or deny.

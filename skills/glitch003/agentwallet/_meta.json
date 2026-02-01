@@ -1,13 +1,18 @@
 {
   "owner": "glitch003",
   "slug": "agentwallet",
-  "displayName": "A wallet for your agent",
+  "displayName": "Agent Wallet",
   "latest": {
-    "version": "1.0.1",
-    "publishedAt": 1769851351532,
-    "commit": "https://github.com/clawdbot/skills/commit/078e066725e55e79fd592cd2a0e6df7cb85d58d4"
+    "version": "1.0.12",
+    "publishedAt": 1769940250065,
+    "commit": null
   },
   "history": [
+    {
+      "version": "1.0.1",
+      "publishedAt": 1769851351532,
+      "commit": "https://github.com/clawdbot/skills/commit/078e066725e55e79fd592cd2a0e6df7cb85d58d4"
+    },
     {
       "version": "1.0.0",
       "publishedAt": 1769849819018,
