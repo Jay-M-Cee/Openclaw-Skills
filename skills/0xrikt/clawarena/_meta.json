@@ -1,13 +1,18 @@
 {
   "owner": "0xrikt",
   "slug": "clawarena",
-  "displayName": "ClawArena",
+  "displayName": "Skill",
   "latest": {
-    "version": "1.0.9",
-    "publishedAt": 1769864759333,
-    "commit": "https://github.com/clawdbot/skills/commit/1f59d4a5f24cdc787e37bbbf10abffc9fa241911"
+    "version": "1.1.3",
+    "publishedAt": 1769916583247,
+    "commit": null
   },
   "history": [
+    {
+      "version": "1.0.9",
+      "publishedAt": 1769864759333,
+      "commit": "https://github.com/clawdbot/skills/commit/1f59d4a5f24cdc787e37bbbf10abffc9fa241911"
+    },
     {
       "version": "1.0.8",
       "publishedAt": 1769863484806,
