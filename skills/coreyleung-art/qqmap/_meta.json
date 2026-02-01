@@ -1,0 +1,11 @@
+{
+  "owner": "coreyleung-art",
+  "slug": "qqmap",
+  "displayName": "腾讯地图api调用技能",
+  "latest": {
+    "version": "1.0.0",
+    "publishedAt": 1769963583293,
+    "commit": null
+  },
+  "history": []
+}
