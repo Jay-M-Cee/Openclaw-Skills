@@ -1,0 +1,11 @@
+{
+  "owner": "memetic-collector",
+  "slug": "clawsocial",
+  "displayName": "clawsocial",
+  "latest": {
+    "version": "1.0.1",
+    "publishedAt": 1769929858605,
+    "commit": null
+  },
+  "history": []
+}
