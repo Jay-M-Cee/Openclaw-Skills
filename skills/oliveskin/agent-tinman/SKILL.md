@@ -1,6 +1,6 @@
 ---
 name: tinman
-version: 0.5.0
+version: 0.5.1
 description: AI security scanner - discovers prompt injection, tool exfil, context bleed, crypto wallet theft, unauthorized actions, evasion attacks, memory poisoning with 270+ attack probes and real-time monitoring
 author: oliveskin
 repository: https://github.com/oliveskin/openclaw-skill-tinman
@@ -42,6 +42,16 @@ Tinman is a forward-deployed research agent that discovers unknown failure modes
 
 ## Commands
 
+### `/tinman init`
+
+Initialize Tinman workspace with default configuration.
+
+```
+/tinman init                    # Creates ~/.openclaw/workspace/tinman.yaml
+```
+
+Run this first time to set up the workspace.
+
 ### `/tinman scan`
 
 Analyze recent sessions for failure modes.
@@ -80,6 +90,11 @@ Continuous monitoring mode with two options:
 ```
 /tinman watch --mode polling            # Hourly scans
 /tinman watch --mode polling --interval 30  # Every 30 minutes
+```
+
+**Stop watching:**
+```
+/tinman watch --stop                    # Stop background watch process
 ```
 
 **Heartbeat Integration:** For scheduled scans, configure in heartbeat:
