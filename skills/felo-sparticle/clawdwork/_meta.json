@@ -3,9 +3,15 @@
   "slug": "clawdwork",
   "displayName": "ClawdWork",
   "latest": {
-    "version": "1.0.0",
-    "publishedAt": 1769955036402,
-    "commit": "https://github.com/clawdbot/skills/commit/343f8f3dff396fb6fa52e5c55d14e3fabedb031c"
+    "version": "1.3.1",
+    "publishedAt": 1770031774171,
+    "commit": null
   },
-  "history": []
+  "history": [
+    {
+      "version": "1.0.0",
+      "publishedAt": 1769955036402,
+      "commit": "https://github.com/clawdbot/skills/commit/343f8f3dff396fb6fa52e5c55d14e3fabedb031c"
+    }
+  ]
 }
