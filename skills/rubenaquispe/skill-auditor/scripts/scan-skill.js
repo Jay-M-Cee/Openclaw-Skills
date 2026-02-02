@@ -336,8 +336,36 @@ function discoverFiles(dir) {
 // Files that are documentation, not executable code
 const DOC_EXTENSIONS = new Set(['.md', '.txt', '.rst', '.html', '.css', '.json', '.yaml', '.yml', '.toml', '.xml', '.xsd', '.xsl', '.dtd', '.svg', '.csv']);
 
+// Files where URLs are purely metadata/documentation (not executable)
+const METADATA_FILES = new Set(['readme.md', 'package.json', 'origin.json', 'license', 'license.md', 'license.txt', 'changelog.md', 'contributing.md']);
+
+// Safe URL patterns that are never threats (badges, registries, repos)
+const SAFE_URL_PATTERNS = [
+  /img\.shields\.io/i,
+  /shields\.io\/badge/i,
+  /badge\.fury\.io/i,
+  /badgen\.net/i,
+  /github\.com\/[\w-]+\/[\w-]+(?:\.git)?$/i,
+  /clawhub\.ai/i,
+  /npmjs\.com/i,
+  /pypi\.org/i,
+  /crates\.io/i,
+];
+
 function isDocFile(filePath) {
   return DOC_EXTENSIONS.has(path.extname(filePath).toLowerCase());
+}
+
+function isMetadataFile(filePath) {
+  const basename = path.basename(filePath).toLowerCase();
+  // Check direct match or if inside .clawhub directory
+  if (METADATA_FILES.has(basename)) return true;
+  if (filePath.includes('.clawhub')) return true;
+  return false;
+}
+
+function isSafeUrl(url) {
+  return SAFE_URL_PATTERNS.some(pattern => pattern.test(url));
 }
 
 // Downgrade severity for findings in documentation files
@@ -397,6 +425,12 @@ function scanFile(filePath, skillDir) {
         if (matchCount > maxMatches) break;
 
         const snippet = line.trim().substring(0, 200);
+
+        // Skip HTTP URL findings in metadata/doc files entirely
+        if (pattern.id === 'http-url' && isMetadataFile(filePath)) continue;
+        // Skip safe URLs (badges, registries, repo links) everywhere
+        if (pattern.id === 'http-url' && match[0] && isSafeUrl(match[0])) continue;
+
         const adjustedSeverity = adjustSeverityForContext(pattern.severity, filePath);
         findings.push({
           id: pattern.id,
@@ -427,13 +461,13 @@ function scanFile(filePath, skillDir) {
 function parseSkillMd(skillDir) {
   const skillMdPath = path.join(skillDir, 'SKILL.md');
   if (!fs.existsSync(skillMdPath)) {
-    return { name: 'unknown', description: 'No SKILL.md found', hasSkillMd: false };
+    return { name: 'unknown', description: 'No SKILL.md found', hasSkillMd: false, fullContent: '' };
   }
 
   const content = fs.readFileSync(skillMdPath, 'utf-8');
   const fmMatch = content.match(/^---\s*\n([\s\S]*?)\n---/);
   if (!fmMatch) {
-    return { name: 'unknown', description: 'No frontmatter', hasSkillMd: true };
+    return { name: 'unknown', description: 'No frontmatter', hasSkillMd: true, fullContent: content };
   }
 
   const fm = fmMatch[1];
@@ -442,23 +476,135 @@ function parseSkillMd(skillDir) {
 
   return {
     name: nameMatch ? nameMatch[1].trim() : 'unknown',
-    description: descMatch ? descMatch[1].trim() : 'No description',
-    hasSkillMd: true
+    description: descMatch ? descMatch[1].trim().replace(/^["']|["']$/g, '') : 'No description',
+    hasSkillMd: true,
+    fullContent: content
   };
+}
+
+// ─── Intent-Aware Finding Analysis ─────────────────────────────────
+
+/**
+ * Cross-references findings against the skill's declared purpose.
+ * If a finding matches what the skill says it does, it's downgraded
+ * and marked as intentMatch: true.
+ */
+function applyIntentMatching(findings, skillMeta) {
+  if (!skillMeta.hasSkillMd || !skillMeta.fullContent) return findings;
+
+  const desc = (skillMeta.description + '\n' + skillMeta.fullContent).toLowerCase();
+
+  // Build intent patterns: what files/behaviors does the skill say it touches?
+  const INTENT_PATTERNS = [
+    { fileRef: /SOUL\.md/i, descMatch: /soul\.md/i },
+    { fileRef: /AGENTS\.md/i, descMatch: /agents\.md/i },
+    { fileRef: /TOOLS\.md/i, descMatch: /tools\.md/i },
+    { fileRef: /MEMORY\.md/i, descMatch: /memory\.md/i },
+    { fileRef: /HEARTBEAT\.md/i, descMatch: /heartbeat\.md/i },
+    { fileRef: /USER\.md/i, descMatch: /user\.md/i },
+    { fileRef: /memory\//i, descMatch: /memory\//i },
+    { fileRef: /\.learnings/i, descMatch: /\.learnings/i },
+    { fileRef: /sessions_send|sessions_spawn/i, descMatch: /sessions?_(?:send|spawn|list|history)/i },
+    { fileRef: /cron|schedul/i, descMatch: /cron|schedul|hook/i },
+    { fileRef: /CLAUDE\.md/i, descMatch: /claude\.md/i },
+    { fileRef: /copilot-instructions/i, descMatch: /copilot-instructions/i },
+  ];
+
+  // Purpose-keyword patterns: if the skill describes a purpose, related behaviors are expected
+  const PURPOSE_PATTERNS = [
+    {
+      // Token optimization / file compression skills → file read/write + AGENTS.md modification expected
+      purposeMatch: /\b(?:compress|optimi[zs]e|reduce\s*tokens?|token\s*sav|minif|compact|shrink|ai.?efficient)\b/i,
+      expectedCategories: ['File Access', 'Sensitive File Access', 'Persistence'],
+      expectedIds: ['memory-file-access', 'memory-write', 'path-traversal', 'homedir-access']
+    },
+    {
+      // Behavior modification / persistent mode skills → writing to config files expected
+      purposeMatch: /\b(?:modif(?:y|ies)\s*(?:ai\s*)?behavio[ur]|persistent\s*mode|ai.?writing|notation|instruction)\b/i,
+      expectedCategories: ['Persistence', 'Sensitive File Access', 'Prompt Injection'],
+      expectedIds: ['memory-write', 'prompt-injection-system', 'prompt-injection-new-instructions']
+    },
+    {
+      // Model audit / detection skills → reading config files expected
+      purposeMatch: /\b(?:audit\s*model|detect\s*model|model\s*(?:audit|detect|cost|compar)|cost\s*(?:analy|calculat|compar))\b/i,
+      expectedCategories: ['File Access', 'Sensitive File Access'],
+      expectedIds: ['memory-file-access', 'homedir-access', 'config-modification']
+    },
+    {
+      // Workspace tools → file access expected
+      purposeMatch: /\b(?:workspace|organiz|clean\s*up|restructur|format\s*files?)\b/i,
+      expectedCategories: ['File Access', 'Sensitive File Access'],
+      expectedIds: ['memory-file-access', 'path-traversal', 'homedir-access']
+    }
+  ];
+
+  // Check which purpose patterns match the skill's description
+  const matchedPurposes = PURPOSE_PATTERNS.filter(pp => pp.purposeMatch.test(desc));
+  const purposeExpectedCategories = new Set();
+  const purposeExpectedIds = new Set();
+  for (const pp of matchedPurposes) {
+    pp.expectedCategories.forEach(c => purposeExpectedCategories.add(c));
+    pp.expectedIds.forEach(id => purposeExpectedIds.add(id));
+  }
+
+  const severityDowngrade = { critical: 'medium', high: 'low', medium: 'low', low: 'low' };
+
+  return findings.map(f => {
+    // Check if the finding's snippet or explanation references something the skill discloses
+    let matched = false;
+
+    // Method 1: Direct file-reference matching (existing logic)
+    for (const ip of INTENT_PATTERNS) {
+      if (ip.fileRef.test(f.snippet) || ip.fileRef.test(f.explanation)) {
+        if (ip.descMatch.test(desc)) {
+          matched = true;
+          break;
+        }
+      }
+    }
+
+    // Method 2: Purpose-keyword matching (new)
+    if (!matched && (purposeExpectedCategories.has(f.category) || purposeExpectedIds.has(f.id))) {
+      matched = true;
+    }
+
+    if (matched) {
+      return {
+        ...f,
+        intentMatch: true,
+        originalSeverity: f.originalSeverity || f.severity,
+        severity: severityDowngrade[f.severity] || f.severity,
+        explanation: f.explanation + ' ⚡ Expected behavior — matches skill\'s stated purpose'
+      };
+    } else {
+      // For sensitive file access / persistence findings, mark as undisclosed
+      const sensitiveCategories = ['Sensitive File Access', 'Persistence', 'Data Exfiltration', 'Privilege Escalation'];
+      const note = sensitiveCategories.includes(f.category)
+        ? ' ⚠️ Undisclosed — not mentioned in skill description'
+        : '';
+      return {
+        ...f,
+        intentMatch: false,
+        explanation: f.explanation + note
+      };
+    }
+  });
 }
 
 // ─── Risk Scoring ──────────────────────────────────────────────────
 
 function calculateRisk(findings) {
+  // Only count non-intent-matched findings for risk assessment
+  const unmatched = findings.filter(f => !f.intentMatch);
   const counts = { critical: 0, high: 0, medium: 0, low: 0 };
   const categories = new Set();
 
-  for (const f of findings) {
+  for (const f of unmatched) {
     counts[f.severity] = (counts[f.severity] || 0) + 1;
     categories.add(f.category);
   }
 
-  // Check for obfuscation + data access combo (auto-critical)
+  // Check for obfuscation + data access combo (auto-critical) — only for undisclosed behaviors
   const hasObfuscation = categories.has('Obfuscation');
   const hasDataAccess = categories.has('Sensitive File Access') || categories.has('Data Exfiltration');
   const hasPromptInjection = categories.has('Prompt Injection');
@@ -521,7 +667,7 @@ const ALWAYS_SUSPICIOUS = new Set([
   'Potential data exfiltration'
 ]);
 
-function calculateAccuracyScore(description, actualCapabilities) {
+function calculateAccuracyScore(description, actualCapabilities, findings = [], fullContent = '') {
   if (!description || description === 'No SKILL.md found' || description === 'No frontmatter' || description === 'No description') {
     return { score: 1, disclosed: [], undisclosed: actualCapabilities, reason: 'No description provided — impossible to verify intent' };
   }
@@ -530,23 +676,46 @@ function calculateAccuracyScore(description, actualCapabilities) {
     return { score: 10, disclosed: [], undisclosed: [], reason: 'Skill does what it says and nothing more' };
   }
 
+  // Check against FULL SKILL.md content, not just the YAML description field
+  const fullText = (description + '\n' + (fullContent || '')).toLowerCase();
+
   const disclosed = [];
   const undisclosed = [];
 
   for (const cap of actualCapabilities) {
     // Always-suspicious capabilities are never "disclosed" — they're inherently deceptive
+    // UNLESS the finding was intent-matched (purpose-keyword recognized the behavior)
     if (ALWAYS_SUSPICIOUS.has(cap)) {
+      // Check if all findings in this category are intent-matched
+      const capCategories = {
+        'Contains prompt injection attempts': 'Prompt Injection',
+        'Uses obfuscation techniques': 'Obfuscation',
+        'Potential data exfiltration': 'Data Exfiltration'
+      };
+      const cat = capCategories[cap];
+      const catFindings = findings.filter(f => f.category === cat);
+      const allIntentMatched = catFindings.length > 0 && catFindings.every(f => f.intentMatch);
+      if (allIntentMatched) {
+        disclosed.push(cap + ' (disclosed)');
+        continue;
+      }
       undisclosed.push(cap);
       continue;
     }
 
     const keywords = DESC_CAPABILITY_KEYWORDS[cap] || [];
-    const mentioned = keywords.some(regex => regex.test(description));
+    const mentioned = keywords.some(regex => regex.test(fullText));
     if (mentioned) {
       disclosed.push(cap);
     } else {
       undisclosed.push(cap);
     }
+  }
+
+  // Count intent-matched findings — these reduce penalty for undisclosed caps
+  const intentMatchedCategories = new Set();
+  for (const f of findings) {
+    if (f.intentMatch) intentMatchedCategories.add(f.category);
   }
 
   // Score calculation:
@@ -563,9 +732,25 @@ function calculateAccuracyScore(description, actualCapabilities) {
     'Attempts privilege escalation': 2
   };
 
+  // Map capabilities to categories for intent matching
+  const CAP_TO_CATEGORIES = {
+    'Accesses files outside skill directory': ['File Access', 'Sensitive File Access'],
+    'Attempts persistence mechanisms': ['Persistence'],
+    'Makes network requests': ['Network'],
+    'Executes shell commands': ['Shell Execution'],
+    'Attempts privilege escalation': ['Privilege Escalation'],
+  };
+
   let score = 10;
   for (const cap of undisclosed) {
-    score -= (DEDUCTIONS[cap] || 1);
+    // If most findings in this category are intent-matched, reduce deduction
+    const relatedCats = CAP_TO_CATEGORIES[cap] || [];
+    const hasIntentMatch = relatedCats.some(c => intentMatchedCategories.has(c));
+    if (hasIntentMatch) {
+      score -= (DEDUCTIONS[cap] || 1) * 0.25; // Only 25% penalty if intent-matched
+    } else {
+      score -= (DEDUCTIONS[cap] || 1);
+    }
   }
 
   // Bonus: if capabilities ARE disclosed, slight boost for honesty
@@ -640,7 +825,10 @@ function main() {
 
   allFindings = deduplicateFindings(allFindings);
 
-  // Calculate risk
+  // Apply intent matching BEFORE risk calculation so matched findings are downgraded
+  allFindings = applyIntentMatching(allFindings, skillMeta);
+
+  // Calculate risk (uses intent-matched findings)
   const riskLevel = calculateRisk(allFindings);
   const capabilities = summarizeCapabilities(allFindings);
 
@@ -665,7 +853,7 @@ function main() {
     },
     riskLevel,
     reputation: { publisher: 'Local install', tier: 'local', note: 'Installed from local source', warning: 'No publisher info available — verify source yourself.' },
-    accuracyScore: calculateAccuracyScore(skillMeta.description, capabilities),
+    accuracyScore: calculateAccuracyScore(skillMeta.description, capabilities, allFindings, skillMeta.fullContent),
     findings: allFindings,
     findingCount: allFindings.length,
     summary: {

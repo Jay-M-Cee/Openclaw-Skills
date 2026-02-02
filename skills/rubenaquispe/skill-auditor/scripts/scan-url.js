@@ -62,8 +62,21 @@ const BINARY_EXTENSIONS = new Set([
   '.woff', '.woff2', '.ttf', '.otf', '.eot'
 ]);
 
+const METADATA_FILES = new Set(['readme.md', 'package.json', 'origin.json', 'license', 'license.md', 'license.txt', 'changelog.md', 'contributing.md']);
+const SAFE_URL_PATTERNS = [
+  /img\.shields\.io/i, /shields\.io\/badge/i, /badge\.fury\.io/i, /badgen\.net/i,
+  /github\.com\/[\w-]+\/[\w-]+(?:\.git)?$/i, /clawhub\.ai/i, /npmjs\.com/i, /pypi\.org/i, /crates\.io/i,
+];
+
 function isDocFile(name) { return DOC_EXTENSIONS.has(path.extname(name).toLowerCase()); }
 function isBinaryFile(name) { return BINARY_EXTENSIONS.has(path.extname(name).toLowerCase()); }
+function isMetadataFile(name) {
+  const basename = path.basename(name).toLowerCase();
+  if (METADATA_FILES.has(basename)) return true;
+  if (name.includes('.clawhub')) return true;
+  return false;
+}
+function isSafeUrl(url) { return SAFE_URL_PATTERNS.some(p => p.test(url)); }
 
 function adjustSeverity(severity, fileName) {
   if (!isDocFile(fileName)) return severity;
@@ -85,6 +98,10 @@ function scanContent(content, fileName) {
       while ((match = pattern.regex.exec(lines[i])) !== null) {
         matchCount++;
         if (matchCount > maxMatches) break;
+        // Skip HTTP URL findings in metadata/doc files entirely
+        if (pattern.id === 'http-url' && isMetadataFile(fileName)) continue;
+        // Skip safe URLs everywhere
+        if (pattern.id === 'http-url' && match[0] && isSafeUrl(match[0])) continue;
         const severity = adjustSeverity(pattern.severity, fileName);
         findings.push({
           id: pattern.id,
@@ -107,9 +124,10 @@ function scanContent(content, fileName) {
 // ─── Risk + Accuracy (same logic as scan-skill.js) ─────────────────
 
 function calculateRisk(findings) {
+  const unmatched = findings.filter(f => !f.intentMatch);
   const counts = { critical: 0, high: 0, medium: 0, low: 0 };
   const categories = new Set();
-  for (const f of findings) { counts[f.severity] = (counts[f.severity] || 0) + 1; categories.add(f.category); }
+  for (const f of unmatched) { counts[f.severity] = (counts[f.severity] || 0) + 1; categories.add(f.category); }
 
   if (categories.has('Prompt Injection') || (categories.has('Obfuscation') && (categories.has('Sensitive File Access') || categories.has('Data Exfiltration')))) return 'CRITICAL';
   if (counts.critical > 0) return 'CRITICAL';
@@ -147,19 +165,51 @@ const DESC_KEYWORDS = {
 };
 const DEDUCTIONS = { 'Uses obfuscation techniques': 4, 'Contains prompt injection attempts': 5, 'Potential data exfiltration': 5, 'Makes network requests': 1.5, 'Accesses files outside skill directory': 2, 'Executes shell commands': 2, 'Attempts persistence mechanisms': 3, 'Attempts privilege escalation': 2 };
 
-function calcAccuracy(description, caps) {
+function calcAccuracy(description, caps, findings = [], fullContent = '') {
   if (!description || description === 'No description') return { score: 1, undisclosed: caps, reason: 'No description provided' };
   if (caps.length === 0) return { score: 10, undisclosed: [], reason: 'Skill does what it says and nothing more' };
 
+  const fullText = (description + '\n' + (fullContent || '')).toLowerCase();
   const disclosed = [], undisclosed = [];
   for (const cap of caps) {
-    if (ALWAYS_SUSPICIOUS.has(cap)) { undisclosed.push(cap); continue; }
+    if (ALWAYS_SUSPICIOUS.has(cap)) {
+      // Check if all findings in this category are intent-matched
+      const capCategories = { 'Contains prompt injection attempts': 'Prompt Injection', 'Uses obfuscation techniques': 'Obfuscation', 'Potential data exfiltration': 'Data Exfiltration' };
+      const cat = capCategories[cap];
+      const catFindings = findings.filter(f => f.category === cat);
+      if (catFindings.length > 0 && catFindings.every(f => f.intentMatch)) {
+        disclosed.push(cap + ' (disclosed)');
+        continue;
+      }
+      undisclosed.push(cap);
+      continue;
+    }
     const kws = DESC_KEYWORDS[cap] || [];
-    kws.some(r => r.test(description)) ? disclosed.push(cap) : undisclosed.push(cap);
+    kws.some(r => r.test(fullText)) ? disclosed.push(cap) : undisclosed.push(cap);
   }
 
+  // Check intent-matched categories
+  const intentMatchedCategories = new Set();
+  for (const f of findings) { if (f.intentMatch) intentMatchedCategories.add(f.category); }
+
+  const CAP_TO_CATEGORIES = {
+    'Accesses files outside skill directory': ['File Access', 'Sensitive File Access'],
+    'Attempts persistence mechanisms': ['Persistence'],
+    'Makes network requests': ['Network'],
+    'Executes shell commands': ['Shell Execution'],
+    'Attempts privilege escalation': ['Privilege Escalation'],
+  };
+
   let score = 10;
-  for (const cap of undisclosed) score -= (DEDUCTIONS[cap] || 1);
+  for (const cap of undisclosed) {
+    const relatedCats = CAP_TO_CATEGORIES[cap] || [];
+    const hasIntentMatch = relatedCats.some(c => intentMatchedCategories.has(c));
+    if (hasIntentMatch) {
+      score -= (DEDUCTIONS[cap] || 1) * 0.25;
+    } else {
+      score -= (DEDUCTIONS[cap] || 1);
+    }
+  }
   score += disclosed.length * 0.25;
   score = Math.max(1, Math.min(10, Math.round(score)));
 
@@ -169,6 +219,80 @@ function calcAccuracy(description, caps) {
     'Description does not match actual behavior — skill is deceptive';
 
   return { score, disclosed, undisclosed, reason };
+}
+
+// ─── Intent-Aware Finding Analysis ─────────────────────────────────
+
+function applyIntentMatching(findings, description, fullContent) {
+  if (!fullContent && !description) return findings;
+
+  const desc = ((description || '') + '\n' + (fullContent || '')).toLowerCase();
+
+  const INTENT_PATTERNS = [
+    { fileRef: /SOUL\.md/i, descMatch: /soul\.md/i },
+    { fileRef: /AGENTS\.md/i, descMatch: /agents\.md/i },
+    { fileRef: /TOOLS\.md/i, descMatch: /tools\.md/i },
+    { fileRef: /MEMORY\.md/i, descMatch: /memory\.md/i },
+    { fileRef: /HEARTBEAT\.md/i, descMatch: /heartbeat\.md/i },
+    { fileRef: /USER\.md/i, descMatch: /user\.md/i },
+    { fileRef: /memory\//i, descMatch: /memory\//i },
+    { fileRef: /\.learnings/i, descMatch: /\.learnings/i },
+    { fileRef: /sessions_send|sessions_spawn/i, descMatch: /sessions?_(?:send|spawn|list|history)/i },
+    { fileRef: /cron|schedul/i, descMatch: /cron|schedul|hook/i },
+    { fileRef: /CLAUDE\.md/i, descMatch: /claude\.md/i },
+    { fileRef: /copilot-instructions/i, descMatch: /copilot-instructions/i },
+  ];
+
+  // Purpose-keyword patterns
+  const PURPOSE_PATTERNS = [
+    { purposeMatch: /\b(?:compress|optimi[zs]e|reduce\s*tokens?|token\s*sav|minif|compact|shrink|ai.?efficient)\b/i,
+      expectedCategories: ['File Access', 'Sensitive File Access', 'Persistence'],
+      expectedIds: ['memory-file-access', 'memory-write', 'path-traversal', 'homedir-access'] },
+    { purposeMatch: /\b(?:modif(?:y|ies)\s*(?:ai\s*)?behavio[ur]|persistent\s*mode|ai.?writing|notation|instruction)\b/i,
+      expectedCategories: ['Persistence', 'Sensitive File Access', 'Prompt Injection'],
+      expectedIds: ['memory-write', 'prompt-injection-system', 'prompt-injection-new-instructions'] },
+    { purposeMatch: /\b(?:audit\s*model|detect\s*model|model\s*(?:audit|detect|cost|compar)|cost\s*(?:analy|calculat|compar))\b/i,
+      expectedCategories: ['File Access', 'Sensitive File Access'],
+      expectedIds: ['memory-file-access', 'homedir-access', 'config-modification'] },
+    { purposeMatch: /\b(?:workspace|organiz|clean\s*up|restructur|format\s*files?)\b/i,
+      expectedCategories: ['File Access', 'Sensitive File Access'],
+      expectedIds: ['memory-file-access', 'path-traversal', 'homedir-access'] }
+  ];
+  const matchedPurposes = PURPOSE_PATTERNS.filter(pp => pp.purposeMatch.test(desc));
+  const purposeExpectedCategories = new Set();
+  const purposeExpectedIds = new Set();
+  for (const pp of matchedPurposes) {
+    pp.expectedCategories.forEach(c => purposeExpectedCategories.add(c));
+    pp.expectedIds.forEach(id => purposeExpectedIds.add(id));
+  }
+
+  const severityDowngrade = { critical: 'medium', high: 'low', medium: 'low', low: 'low' };
+
+  return findings.map(f => {
+    let matched = false;
+    for (const ip of INTENT_PATTERNS) {
+      if (ip.fileRef.test(f.snippet) || ip.fileRef.test(f.explanation)) {
+        if (ip.descMatch.test(desc)) { matched = true; break; }
+      }
+    }
+    // Purpose-keyword matching
+    if (!matched && (purposeExpectedCategories.has(f.category) || purposeExpectedIds.has(f.id))) {
+      matched = true;
+    }
+
+    if (matched) {
+      return {
+        ...f, intentMatch: true,
+        originalSeverity: f.originalSeverity || f.severity,
+        severity: severityDowngrade[f.severity] || f.severity,
+        explanation: f.explanation + ' ⚡ Expected behavior — matches skill\'s stated purpose'
+      };
+    } else {
+      const sensitiveCategories = ['Sensitive File Access', 'Persistence', 'Data Exfiltration', 'Privilege Escalation'];
+      const note = sensitiveCategories.includes(f.category) ? ' ⚠️ Undisclosed — not mentioned in skill description' : '';
+      return { ...f, intentMatch: false, explanation: f.explanation + note };
+    }
+  });
 }
 
 // ─── Publisher Reputation ───────────────────────────────────────────
@@ -280,19 +404,23 @@ async function main() {
 
   // Parse SKILL.md for metadata
   const skillFile = textFiles.find(f => f.name === 'SKILL.md');
-  let skillMeta = { name: gh.path.split('/').pop() || gh.repo, description: 'No description', hasSkillMd: false };
+  let skillMeta = { name: gh.path.split('/').pop() || gh.repo, description: 'No description', hasSkillMd: false, fullContent: '' };
 
   if (skillFile) {
     const raw = await httpGet(skillFile.download_url);
     if (raw.status === 200) {
+      skillMeta.fullContent = raw.data;
       const fmMatch = raw.data.match(/^---\s*\n([\s\S]*?)\n---/);
       if (fmMatch) {
         const nm = fmMatch[1].match(/^name:\s*(.+)$/m);
         const dm = fmMatch[1].match(/^description:\s*(.+)$/m);
-        skillMeta = { name: nm ? nm[1].trim() : skillMeta.name, description: dm ? dm[1].trim() : 'No description', hasSkillMd: true };
+        skillMeta = { ...skillMeta, name: nm ? nm[1].trim() : skillMeta.name, description: dm ? dm[1].trim().replace(/^["']|["']$/g, '') : 'No description', hasSkillMd: true };
       }
     }
   }
+
+  // Apply intent matching
+  allFindings = applyIntentMatching(allFindings, skillMeta.description, skillMeta.fullContent);
 
   const riskLevel = calculateRisk(allFindings);
   const capabilities = summarizeCapabilities(allFindings);
@@ -306,7 +434,7 @@ async function main() {
     reputation,
     scan: { timestamp: new Date().toISOString(), filesScanned: scannedFiles, fileCount: scannedFiles.length },
     riskLevel,
-    accuracyScore: calcAccuracy(skillMeta.description, capabilities),
+    accuracyScore: calcAccuracy(skillMeta.description, capabilities, allFindings, skillMeta.fullContent),
     findings: allFindings,
     findingCount: allFindings.length,
     summary: {

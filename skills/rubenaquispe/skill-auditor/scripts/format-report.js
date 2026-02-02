@@ -26,6 +26,18 @@ const CAP_SHORT = {
   'Attempts privilege escalation': '🔓 Grabs extra access'
 };
 
+// Softer labels when behavior is disclosed/intent-matched
+const CAP_SHORT_DISCLOSED = {
+  'Makes network requests': '🌐 Connects to internet (disclosed)',
+  'Accesses files outside skill directory': '📂 Reads your files (disclosed)',
+  'Potential data exfiltration': '📤 Sends data out (disclosed)',
+  'Executes shell commands': '⚙️ Runs system commands (disclosed)',
+  'Uses obfuscation techniques': '🕵️ Uses encoding (disclosed)',
+  'Contains prompt injection attempts': '🧠 Modifies AI behavior (disclosed)',
+  'Attempts persistence mechanisms': '📌 Persistent changes (disclosed)',
+  'Attempts privilege escalation': '🔓 Extra access (disclosed)'
+};
+
 // Check if a file is a license file
 function isLicenseFile(filename) {
   const baseName = filename.toLowerCase();
@@ -113,8 +125,26 @@ function formatReport(report) {
 
   // ── What it does (icons only, one line each) ──
   if (report.summary.actualCapabilities.length > 0) {
+    // Determine which capabilities are fully intent-matched
+    const capToCategories = {
+      'Makes network requests': ['Network'],
+      'Accesses files outside skill directory': ['File Access', 'Sensitive File Access'],
+      'Potential data exfiltration': ['Data Exfiltration'],
+      'Executes shell commands': ['Shell Execution'],
+      'Uses obfuscation techniques': ['Obfuscation'],
+      'Contains prompt injection attempts': ['Prompt Injection'],
+      'Attempts persistence mechanisms': ['Persistence'],
+      'Attempts privilege escalation': ['Privilege Escalation']
+    };
     for (const cap of report.summary.actualCapabilities) {
-      lines.push(CAP_SHORT[cap] || `❓ ${cap}`);
+      const cats = capToCategories[cap] || [];
+      const catFindings = (report.findings || []).filter(f => cats.includes(f.category));
+      const allMatched = catFindings.length > 0 && catFindings.every(f => f.intentMatch);
+      if (allMatched) {
+        lines.push(CAP_SHORT_DISCLOSED[cap] || `✓ ${cap} (disclosed)`);
+      } else {
+        lines.push(CAP_SHORT[cap] || `❓ ${cap}`);
+      }
     }
     lines.push('');
   }

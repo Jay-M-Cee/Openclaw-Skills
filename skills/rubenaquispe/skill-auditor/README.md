@@ -46,26 +46,32 @@ The Skill Auditor analyzes skill code (JavaScript, Python, shell scripts, etc.) 
 
 ## Installation
 
-### From GitHub (Recommended)
+### Option 1: Ask Your Assistant (Easiest)
+If you have OpenClaw/Moltbot running, just say:
+> "Install the skill-auditor skill from ClawHub"
+
+Your assistant handles the rest.
+
+### Option 2: ClawHub CLI
+```bash
+clawhub install skill-auditor
+```
+
+### Option 3: From GitHub
 ```bash
 git clone https://github.com/RubenAQuispe/skill-auditor.git
 cp -r skill-auditor ~/.openclaw/skills/
 ```
 
-### Manual Installation
-Download and copy the skill folder to one of these locations:
+### Where Skills Live
 
-| Scope | Path |
-|-------|------|
-| Global | `~/.openclaw/skills/skill-auditor/` |
-| Workspace | `<project>/skills/skill-auditor/` |
+| Scope | Path | Priority |
+|-------|------|----------|
+| Workspace | `<project>/skills/skill-auditor/` | Highest |
+| Global | `~/.openclaw/skills/skill-auditor/` | Medium |
+| Bundled | Ships with install | Lowest |
 
-```bash
-# Or download and copy manually
-# Download the ZIP from GitHub → extract → copy to your skills directory
-```
-
-Priority: Workspace > Global > Bundled
+After installing, **restart your session** so the agent picks up the new skill.
 
 No external dependencies — uses Node.js built-in modules only.
 
