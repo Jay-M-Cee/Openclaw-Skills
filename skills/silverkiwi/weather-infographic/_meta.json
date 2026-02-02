@@ -1,11 +1,17 @@
 {
   "owner": "silverkiwi",
   "slug": "weather-infographic",
-  "displayName": "weather-infographic",
+  "displayName": "Weather TV style",
   "latest": {
-    "version": "1.0.0",
-    "publishedAt": 1769850780708,
-    "commit": "https://github.com/clawdbot/skills/commit/6e4b443cdbd570b9c7853c29f53b83e7e128c34f"
+    "version": "1.0.2",
+    "publishedAt": 1769982173987,
+    "commit": null
   },
-  "history": []
+  "history": [
+    {
+      "version": "1.0.0",
+      "publishedAt": 1769850780708,
+      "commit": "https://github.com/clawdbot/skills/commit/6e4b443cdbd570b9c7853c29f53b83e7e128c34f"
+    }
+  ]
 }

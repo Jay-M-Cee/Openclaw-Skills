@@ -23,14 +23,19 @@ WEATHER_CODES = {
     99: 'Thunderstorm with heavy hail',
 }
 
-def get_current_season():
+def get_current_season(lat=0):
     month = datetime.now().month
-    if 3 <= month <= 5: return 'autumn'
-    if 6 <= month <= 8: return 'winter'
-    if 9 <= month <= 11: return 'spring'
-    return 'summer'
+    is_northern = lat > 0
+    
+    if 3 <= month <= 5: 
+        return 'spring' if is_northern else 'autumn'
+    if 6 <= month <= 8: 
+        return 'summer' if is_northern else 'winter'
+    if 9 <= month <= 11: 
+        return 'autumn' if is_northern else 'spring'
+    return 'winter' if is_northern else 'summer'
 
-def fetch_weather(lat, lon, timezone="Pacific/Auckland"):
+def fetch_weather(lat, lon, timezone="auto"):
     params = {
         "latitude": lat,
         "longitude": lon,
@@ -78,11 +83,11 @@ async def generate_infographic(address, lat, lon, output_path):
     
     client = genai.Client(api_key=api_key, http_options={'api_version': 'v1alpha'})
     
-    season = get_current_season()
+    season = get_current_season(lat)
     weather_data = fetch_weather(lat, lon)
     
     # Step 1: Generate Background
-    bg_prompt = f"Generate a photorealistic high-resolution landscape photograph of {address} in New Zealand during {season}. Professional aerial scenery, wide angle, clean and uncluttered, suitable as a TV weather broadcast backdrop. No text, no people."
+    bg_prompt = f"Generate a photorealistic high-resolution landscape photograph of {address} during {season}. Professional aerial scenery, wide angle, clean and uncluttered, suitable as a TV weather broadcast backdrop. No text, no people."
     print(f"Generating background for {address} ({season})...")
     
     bg_response = client.models.generate_content(
@@ -105,16 +110,17 @@ async def generate_infographic(address, lat, lon, output_path):
 
     # Step 2: Generate Infographic
     infographic_prompt = f"""
-    MASTER PROMPT: Photorealistic New Zealand TV weather broadcast frame.
-    Studio environment with a curved video wall displaying the provided background image.
-    Overlay a professional broadcast UI with the following weather data for {address}:
+    MASTER PROMPT: Photorealistic TV weather broadcast frame.
+    Studio environment with a curved video wall displaying the provided background image of {address}.
+    Overlay a professional broadcast UI with the following weather data:
+    - Location: {address}
     - Current: {weather_data['temp']}°C, {weather_data['weather']}, Wind {weather_data['wind_speed']}km/h {weather_data['wind_dir']}°
     - 7-Day Forecast: {json.dumps(weather_data['forecast'], indent=2)}
     
     Requirements:
     - High legibility, accurate numerals.
     - Horizontal row of exactly 7 forecast tiles.
-    - Deep blue theme, consistent NZ broadcast style.
+    - Deep blue theme, consistent modern broadcast style.
     - No channel logos.
     - Accurate representation of weather icons.
     """

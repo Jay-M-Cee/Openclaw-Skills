@@ -9,14 +9,14 @@ metadata: {"clawdbot":{"emoji":"📺","requires":{"env":["GEMINI_API_KEY"]},"ins
 Generate a professional TV-style weather broadcast frame using Gemini 3 Pro Image (Nano Banana).
 
 ## Features
-- **Seasonal Backgrounds**: Generates a photorealistic backdrop based on the address and current New Zealand season.
+- **Seasonal Backgrounds**: Generates a photorealistic backdrop based on the address and current local season (hemisphere-aware).
 - **Real-time Data**: Pulls live weather and 7-day forecast from Open-Meteo.
 - **Broadcast UI**: Stitches data and background into a professional TV broadcast layout.
 
 ## Usage
 
 ```bash
-python3 {baseDir}/scripts/generate_infographic.py --address "488 Riddell Road, Saint Heliers, Auckland" --lat -36.8501 --lon 174.8699 --output "out/weather-$(date +%F).png"
+python3 {baseDir}/scripts/generate_infographic.py --address "10 Downing St, London" --lat 51.5033 --lon -0.1276 --output "out/london-weather.png"
 ```
 
 ## Environment
