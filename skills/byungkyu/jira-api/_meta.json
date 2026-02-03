@@ -3,9 +3,15 @@
   "slug": "jira-api",
   "displayName": "Jira",
   "latest": {
-    "version": "1.0.0",
-    "publishedAt": 1770023531690,
-    "commit": "https://github.com/clawdbot/skills/commit/56e9abccba9d64dd55125b23720bb089103fabe1"
+    "version": "1.0.1",
+    "publishedAt": 1770117621477,
+    "commit": null
   },
-  "history": []
+  "history": [
+    {
+      "version": "1.0.0",
+      "publishedAt": 1770023531690,
+      "commit": "https://github.com/clawdbot/skills/commit/56e9abccba9d64dd55125b23720bb089103fabe1"
+    }
+  ]
 }
