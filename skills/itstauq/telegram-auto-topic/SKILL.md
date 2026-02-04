@@ -4,6 +4,7 @@ description: >
   Add `/topic` to the start of any message in a Telegram forum group to
   auto-create a new topic from it. A title is generated automatically from
   the message content.
+  Github: https://github.com/itstauq/telegram-auto-topic
 ---
 
 # Telegram Auto-Topic
@@ -13,7 +14,7 @@ Add `/topic` to the start of any message in a Telegram forum group → a new top
 ### Example
 
 **1.** You send a message starting with `/topic`:
-> /topic I need to look into renewing my passport before March
+> /topic @your_bot I need to look into renewing my passport before March
 
 **2.** A new forum topic **"Passport Renewal Before March"** is created with your message quoted inside it. You get a reply linking directly to the new topic.
 
@@ -65,9 +66,17 @@ scripts/telegram-auto-topic.sh <chat_id> <message_id> <sender> [title] [text]
 
 Returns JSON: `{"topic_id": 123, "title": "Used title", "link": "https://t.me/c/..."}`
 
-## Optional: Register Telegram command
+## Optional configuration
 
-To get `/topic` in Telegram's autocomplete menu, add this to your OpenClaw config under `channels.telegram`:
+**Skip the @bot mention** — by default, the bot only responds when mentioned. To use `/topic` without mentioning the bot:
+
+```json
+"channels.telegram.groups.<CHAT_ID>": {
+  "requireMention": false
+}
+```
+
+**Telegram autocomplete** — to get `/topic` in Telegram's command menu, add under `channels.telegram`:
 
 ```json
 {
