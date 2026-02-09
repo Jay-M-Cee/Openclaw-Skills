@@ -1,0 +1,11 @@
+{
+  "owner": "crossservicesolutions",
+  "slug": "add-watermark-to-pdf",
+  "displayName": "Add watermark to PDF",
+  "latest": {
+    "version": "1.0.0",
+    "publishedAt": 1770603789385,
+    "commit": null
+  },
+  "history": []
+}
