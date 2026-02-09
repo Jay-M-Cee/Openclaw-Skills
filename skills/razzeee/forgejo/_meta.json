@@ -1,0 +1,11 @@
+{
+  "owner": "razzeee",
+  "slug": "forgejo",
+  "displayName": "Forgejo",
+  "latest": {
+    "version": "0.1.0",
+    "publishedAt": 1770599550038,
+    "commit": null
+  },
+  "history": []
+}
