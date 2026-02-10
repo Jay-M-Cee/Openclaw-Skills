@@ -1,0 +1,11 @@
+{
+  "owner": "dotcom-squad",
+  "slug": "telnyx-network",
+  "displayName": "Telnyx Network",
+  "latest": {
+    "version": "1.0.0",
+    "publishedAt": 1770739720770,
+    "commit": null
+  },
+  "history": []
+}
