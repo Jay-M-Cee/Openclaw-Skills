@@ -1,0 +1,11 @@
+{
+  "owner": "anton-abyzov",
+  "slug": "sw-deploy-router",
+  "displayName": "Deploy Router",
+  "latest": {
+    "version": "1.0.0",
+    "publishedAt": 1770713661056,
+    "commit": null
+  },
+  "history": []
+}
