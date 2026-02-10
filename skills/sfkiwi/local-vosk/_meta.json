@@ -1,0 +1,11 @@
+{
+  "owner": "sfkiwi",
+  "slug": "local-vosk",
+  "displayName": "Local Vosk STT",
+  "latest": {
+    "version": "1.0.1",
+    "publishedAt": 1770729136246,
+    "commit": null
+  },
+  "history": []
+}
