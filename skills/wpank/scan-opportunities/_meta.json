@@ -1,0 +1,11 @@
+{
+  "owner": "wpank",
+  "slug": "scan-opportunities",
+  "displayName": "Uniswap Scan Opportunities",
+  "latest": {
+    "version": "0.1.0",
+    "publishedAt": 1770745834567,
+    "commit": null
+  },
+  "history": []
+}
