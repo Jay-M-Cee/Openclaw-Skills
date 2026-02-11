@@ -1,5 +1,6 @@
 ---
 name: geo-content-optimizer
+version: "1.0"
 description: Optimizes content for Generative Engine Optimization (GEO) to increase chances of being cited by AI systems like ChatGPT, Claude, Perplexity, and Google AI Overviews. Makes content AI-friendly while maintaining SEO value.
 ---
 
@@ -133,25 +134,24 @@ When a user requests GEO optimization:
    - Includes memorable, concise explanations
    ```
 
-2. **Analyze Current Content**
+3. **Analyze Current Content**
 
    ```markdown
    ## GEO Analysis: [Content Title]
    
    ### Current State Assessment
    
-   | Factor | Score | Notes |
-   |--------|-------|-------|
-   | Clear definitions | [1-5] | [notes] |
-   | Quotable statements | [1-5] | [notes] |
-   | Factual density | [1-5] | [notes] |
-   | Source citations | [1-5] | [notes] |
-   | Q&A format | [1-5] | [notes] |
-   | Authority signals | [1-5] | [notes] |
-   | Content freshness | [1-5] | [notes] |
-   | Structure clarity | [1-5] | [notes] |
-   
-   **Overall GEO Score**: [X]/40
+   | GEO Factor | Current Score (1-10) | Notes |
+   |------------|---------------------|-------|
+   | Clear definitions | [X] | [notes] |
+   | Quotable statements | [X] | [notes] |
+   | Factual density | [X] | [notes] |
+   | Source citations | [X] | [notes] |
+   | Q&A format | [X] | [notes] |
+   | Authority signals | [X] | [notes] |
+   | Content freshness | [X] | [notes] |
+   | Structure clarity | [X] | [notes] |
+   | **GEO Readiness** | **[avg]/10** | **Average across factors** |
    
    **Primary Weaknesses**:
    1. [Weakness 1]
@@ -163,7 +163,7 @@ When a user requests GEO optimization:
    2. [Quick improvement 2]
    ```
 
-3. **Optimize for Clear Definitions**
+4. **Optimize for Clear Definitions**
 
    AI systems love clear, quotable definitions.
 
@@ -192,7 +192,7 @@ When a user requests GEO optimization:
    - [ ] Is 25-50 words for optimal citation length
    ```
 
-4. **Create Quotable Statements**
+5. **Create Quotable Statements**
 
    ```markdown
    ### Quotable Statement Optimization
@@ -238,7 +238,7 @@ When a user requests GEO optimization:
       Example: "To [achieve goal], [step 1], then [step 2], and finally [step 3]."
    ```
 
-5. **Add Authority Signals**
+6. **Add Authority Signals**
 
    ```markdown
    ### Authority Signal Enhancement
@@ -271,7 +271,7 @@ When a user requests GEO optimization:
    - [ ] Industry statistics with sources
    ```
 
-6. **Optimize Content Structure**
+7. **Optimize Content Structure**
 
    ```markdown
    ### Structure Optimization for GEO
@@ -318,7 +318,7 @@ When a user requests GEO optimization:
    > **Key Definition**: [Term] refers to [clear definition].
    ```
 
-7. **Enhance Factual Density**
+8. **Enhance Factual Density**
 
    ```markdown
    ### Factual Density Improvement
@@ -347,7 +347,7 @@ When a user requests GEO optimization:
    - [ ] Cross-reference with authoritative sources
    ```
 
-8. **Implement FAQ Schema**
+9. **Implement FAQ Schema**
 
    ```markdown
    ### FAQ Optimization for GEO
@@ -389,7 +389,7 @@ When a user requests GEO optimization:
    ```
    ```
 
-9. **Generate GEO-Optimized Output**
+10. **Generate GEO-Optimized Output**
 
    ```markdown
    ## GEO Optimization Report
@@ -414,15 +414,15 @@ When a user requests GEO optimization:
 
    ### Before/After GEO Score
 
-   | Factor | Before | After | Change |
-   |--------|--------|-------|--------|
+   | GEO Factor | Before (1-10) | After (1-10) | Change |
+   |------------|---------------|--------------|--------|
    | Clear definitions | [X] | [X] | +[X] |
    | Quotable statements | [X] | [X] | +[X] |
    | Factual density | [X] | [X] | +[X] |
    | Source citations | [X] | [X] | +[X] |
    | Q&A format | [X] | [X] | +[X] |
    | Authority signals | [X] | [X] | +[X] |
-   | **Total** | [X]/30 | [X]/30 | +[X] |
+   | **Overall GEO Score** | **[avg]/10** | **[avg]/10** | **+[X]** |
 
    ### AI Query Coverage
 
@@ -434,7 +434,7 @@ When a user requests GEO optimization:
    - "Best [topic] for [use case]" ✅
    ```
 
-10. **CORE-EEAT GEO Self-Check**
+11. **CORE-EEAT GEO Self-Check**
 
     After optimization, verify GEO-First items:
 
@@ -574,7 +574,9 @@ Use this checklist for any content:
 
 - [seo-content-writer](../seo-content-writer/) - Create SEO content to optimize
 - [schema-markup-generator](../schema-markup-generator/) - Add structured data
+- [keyword-research](../../research/keyword-research/) - Identify keyword targets for GEO optimization
 - [content-refresher](../../optimize/content-refresher/) - Update content for freshness
 - [serp-analysis](../../research/serp-analysis/) - Analyze AI Overview patterns
 - [content-quality-auditor](../../cross-cutting/content-quality-auditor/) - Full 80-item CORE-EEAT audit
+- [domain-authority-auditor](../../cross-cutting/domain-authority-auditor/) — Domain-level AI citation signals (CITE C05-C08) complement page-level GEO optimization
 
