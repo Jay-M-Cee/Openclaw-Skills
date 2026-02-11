@@ -13,7 +13,12 @@ import urllib.request
 from pathlib import Path
 from datetime import datetime, timedelta
 
-BASE_DIR = Path.home() / '.clawdbot' / 'withings-family'
+def _base_dir() -> Path:
+    new = Path.home() / ".openclaw" / "withings-family"
+    legacy = Path.home() / ".moltbot" / "withings-family"
+    return legacy if legacy.exists() and not new.exists() else new
+
+BASE_DIR = _base_dir()
 
 # Load .env if present
 env_file = BASE_DIR / '.env'

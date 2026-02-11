@@ -3,9 +3,15 @@
   "slug": "withings-family",
   "displayName": "Withings Family",
   "latest": {
-    "version": "1.0.1",
-    "publishedAt": 1769376527221,
-    "commit": "https://github.com/clawdbot/skills/commit/b8525a013b27210103931326602f2e49264bb73a"
+    "version": "1.0.2",
+    "publishedAt": 1770825486972,
+    "commit": null
   },
-  "history": []
+  "history": [
+    {
+      "version": "1.0.1",
+      "publishedAt": 1769376527221,
+      "commit": "https://github.com/clawdbot/skills/commit/b8525a013b27210103931326602f2e49264bb73a"
+    }
+  ]
 }

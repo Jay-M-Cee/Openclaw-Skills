@@ -1,4 +1,4 @@
-# Withings Family (Clawdbot Skill)
+# Withings Family (OpenClaw Skill)
 
 Fetch health data from the Withings API for multiple family members (weight, body metrics, activity, sleep).
 
@@ -21,7 +21,7 @@ Recommended (auto OAuth callback):
 python3 scripts/withings_oauth_local.py <userId>
 ```
 
-Tokens are stored per-user in `~/.clawdbot/withings-family/tokens-<userId>.json`.
+Tokens are stored per-user in `~/.openclaw/withings-family/tokens-<userId>.json` (legacy: `~/.moltbot/withings-family/...`).
 
 ## Requirements
 
@@ -30,8 +30,8 @@ Tokens are stored per-user in `~/.clawdbot/withings-family/tokens-<userId>.json`
 
 ## Publishing
 
-Version is declared in `SKILL.md`. Tag releases (e.g. `1.0.0`) and publish via ClawdHub:
+Version is declared in `SKILL.md`. Tag releases (e.g. `v1.0.2`) and publish:
 
 ```bash
-clawdhub publish . --slug withings-family --name "Withings Family" --version 1.0.0
+clawhub publish . --slug withings-family --name "Withings Family" --version 1.0.2 --registry "https://auth.clawdhub.com"
 ```
