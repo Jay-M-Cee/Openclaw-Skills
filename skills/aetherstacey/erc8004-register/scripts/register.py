@@ -532,19 +532,14 @@ def cmd_info(args):
     print(f"\nRegistry: {REGISTRY_ADDRESS}")
     print(f"Explorer: {chain_info['explorer']}/token/{REGISTRY_ADDRESS}?a={agent_id}")
 
-def cmd_validate(args):
-    """Validate agent registration for common issues."""
-    if not check_dependencies():
-        sys.exit(1)
-
-    chain = args.chain or "base"
+def validate_agent_data(agent_id: int, chain: str) -> tuple:
+    """
+    Validate agent registration and return (data, issues, warnings).
+    Returns (None, issues, []) if agent doesn't exist or can't be decoded.
+    """
     w3 = get_web3(chain)
     contract = get_contract(w3)
-
-    agent_id = int(args.agent_id)
-
-    print(f"Validating agent {agent_id} on {chain}...")
-    print("="*50)
+    chain_info = CHAINS[chain]
 
     issues = []
     warnings = []
@@ -553,70 +548,88 @@ def cmd_validate(args):
     try:
         owner = contract.functions.ownerOf(agent_id).call()
     except Exception:
-        print("FAIL: Agent does not exist")
-        sys.exit(1)
+        return None, ["Agent does not exist"], []
 
     # Get URI
     try:
         uri = contract.functions.tokenURI(agent_id).call()
     except Exception as e:
-        issues.append(f"Cannot read tokenURI: {e}")
-        uri = ""
+        return None, [f"Cannot read tokenURI: {e}"], []
 
     # Decode
     data = decode_data_uri(uri) if uri else None
 
     if not data:
-        issues.append("Could not decode metadata (invalid JSON or URI format)")
+        return None, ["Could not decode metadata (invalid JSON or URI format)"], []
+
+    # Check required fields
+    if not data.get("type"):
+        issues.append("Missing 'type' field")
+    elif data["type"] != "https://eips.ethereum.org/EIPS/eip-8004#registration-v1":
+        warnings.append(f"Non-standard type: {data['type']}")
+
+    if not data.get("name"):
+        issues.append("Missing or empty 'name' field")
+
+    if not data.get("description"):
+        warnings.append("Missing or empty 'description' field")
+
+    # Check registrations array
+    if not data.get("registrations"):
+        issues.append("Missing 'registrations' array")
     else:
-        # Check required fields
-        if not data.get("type"):
-            issues.append("Missing 'type' field")
-        elif data["type"] != "https://eips.ethereum.org/EIPS/eip-8004#registration-v1":
-            warnings.append(f"Non-standard type: {data['type']}")
+        has_self = False
+        for reg in data["registrations"]:
+            if reg.get("agentId") == agent_id:
+                has_self = True
+                break
+        if not has_self:
+            warnings.append(f"registrations[] does not include this agentId ({agent_id})")
 
-        if not data.get("name"):
-            issues.append("Missing or empty 'name' field")
+    # Check image
+    image = data.get("image", "")
+    if image:
+        # Check for local paths
+        if image.startswith("/") or image.startswith("./") or image.startswith("../"):
+            issues.append(f"Image is a local path (not accessible): {image}")
+        elif image.startswith("file://"):
+            issues.append(f"Image is a file:// URL (not accessible): {image}")
+        elif image.startswith("http://") or image.startswith("https://"):
+            # Try to reach the image
+            try:
+                req = urllib.request.Request(image, method="HEAD",
+                                             headers={"User-Agent": "ERC8004-Validator/1.0"})
+                with urllib.request.urlopen(req, timeout=5) as resp:
+                    if resp.status >= 400:
+                        warnings.append(f"Image URL returned status {resp.status}")
+            except urllib.error.HTTPError as e:
+                warnings.append(f"Image URL not reachable: HTTP {e.code}")
+            except urllib.error.URLError as e:
+                warnings.append(f"Image URL not reachable: {e.reason}")
+            except Exception as e:
+                warnings.append(f"Could not verify image URL: {e}")
+    else:
+        warnings.append("No image URL set")
 
-        if not data.get("description"):
-            warnings.append("Missing or empty 'description' field")
+    return data, issues, warnings
 
-        # Check registrations array
-        if not data.get("registrations"):
-            issues.append("Missing 'registrations' array")
-        else:
-            has_self = False
-            for reg in data["registrations"]:
-                if reg.get("agentId") == agent_id:
-                    has_self = True
-                    break
-            if not has_self:
-                warnings.append(f"registrations[] does not include this agentId ({agent_id})")
 
-        # Check image
-        image = data.get("image", "")
-        if image:
-            # Check for local paths
-            if image.startswith("/") or image.startswith("./") or image.startswith("../"):
-                issues.append(f"Image is a local path (not accessible): {image}")
-            elif image.startswith("file://"):
-                issues.append(f"Image is a file:// URL (not accessible): {image}")
-            elif image.startswith("http://") or image.startswith("https://"):
-                # Try to reach the image
-                try:
-                    req = urllib.request.Request(image, method="HEAD",
-                                                 headers={"User-Agent": "ERC8004-Validator/1.0"})
-                    with urllib.request.urlopen(req, timeout=5) as resp:
-                        if resp.status >= 400:
-                            warnings.append(f"Image URL returned status {resp.status}")
-                except urllib.error.HTTPError as e:
-                    warnings.append(f"Image URL not reachable: HTTP {e.code}")
-                except urllib.error.URLError as e:
-                    warnings.append(f"Image URL not reachable: {e.reason}")
-                except Exception as e:
-                    warnings.append(f"Could not verify image URL: {e}")
-        else:
-            warnings.append("No image URL set")
+def cmd_validate(args):
+    """Validate agent registration for common issues."""
+    if not check_dependencies():
+        sys.exit(1)
+
+    chain = args.chain or "base"
+    agent_id = int(args.agent_id)
+
+    print(f"Validating agent {agent_id} on {chain}...")
+    print("="*50)
+
+    data, issues, warnings = validate_agent_data(agent_id, chain)
+
+    if data is None and issues:
+        print(f"FAIL: {issues[0]}")
+        sys.exit(1)
 
     # Report results
     print()
@@ -637,6 +650,241 @@ def cmd_validate(args):
     else:
         print(f"\nResult: FAIL ({len(issues)} issue(s), {len(warnings)} warning(s))")
         sys.exit(1)
+
+
+def cmd_fix(args):
+    """Auto-fix common registration issues."""
+    if not check_dependencies():
+        sys.exit(1)
+
+    chain = args.chain or "base"
+    w3 = get_web3(chain)
+    contract = get_contract(w3)
+    chain_info = CHAINS[chain]
+
+    agent_id = int(args.agent_id)
+
+    print(f"Checking agent {agent_id} on {chain} for fixable issues...")
+    print("="*50)
+
+    # Validate first
+    data, issues, warnings = validate_agent_data(agent_id, chain)
+
+    if data is None:
+        if issues:
+            print(f"FAIL: {issues[0]}")
+        else:
+            print("FAIL: Could not load agent data")
+        sys.exit(1)
+
+    # Check ownership (skip for dry-run if no wallet configured)
+    if not args.dry_run:
+        account = get_wallet()
+        try:
+            owner = contract.functions.ownerOf(agent_id).call()
+            if owner.lower() != account.address.lower():
+                print(f"Error: You are not the owner of agent {agent_id}")
+                print(f"  Owner: {owner}")
+                print(f"  Your address: {account.address}")
+                sys.exit(1)
+        except Exception as e:
+            print(f"Error checking ownership: {e}")
+            sys.exit(1)
+
+    # Determine what can be fixed
+    fixes = []
+    fixed_data = data.copy()
+
+    # Fix 1: Missing type field
+    if not fixed_data.get("type"):
+        fixes.append("Add missing 'type' field")
+        fixed_data["type"] = "https://eips.ethereum.org/EIPS/eip-8004#registration-v1"
+
+    # Fix 2: Missing registrations array
+    if not fixed_data.get("registrations"):
+        fixes.append("Add missing 'registrations' array")
+        fixed_data["registrations"] = [{
+            "agentId": agent_id,
+            "agentRegistry": f"eip155:{chain_info['id']}:{REGISTRY_ADDRESS}"
+        }]
+    else:
+        # Check if self-reference is missing
+        has_self = any(reg.get("agentId") == agent_id for reg in fixed_data["registrations"])
+        if not has_self:
+            fixes.append(f"Add self-reference to registrations array (agentId: {agent_id})")
+            fixed_data["registrations"].append({
+                "agentId": agent_id,
+                "agentRegistry": f"eip155:{chain_info['id']}:{REGISTRY_ADDRESS}"
+            })
+
+    # Fix 3: Local-path images (remove them, can't auto-fix to valid URL)
+    image = fixed_data.get("image", "")
+    if image:
+        if image.startswith("/") or image.startswith("./") or image.startswith("../") or image.startswith("file://"):
+            fixes.append(f"Remove local-path image: {image}")
+            fixed_data["image"] = ""
+
+    if not fixes:
+        print("\nNo auto-fixable issues found.")
+        if issues:
+            print(f"\nRemaining issues ({len(issues)}) require manual intervention:")
+            for issue in issues:
+                print(f"  [X] {issue}")
+        else:
+            print("Agent registration looks good!")
+        return
+
+    # Show what will be fixed
+    print(f"\nFound {len(fixes)} fixable issue(s):")
+    for fix in fixes:
+        print(f"  [+] {fix}")
+
+    if args.dry_run:
+        print("\n--dry-run specified, not applying changes.")
+        print("\nProposed metadata:")
+        print(json.dumps(fixed_data, indent=2))
+        return
+
+    # Apply fixes via setAgentURI
+    print(f"\nApplying fixes...")
+
+    data_uri = encode_data_uri(fixed_data)
+
+    set_uri_fn = contract.functions.setAgentURI(agent_id, data_uri)
+    tx_data = {
+        "to": REGISTRY_ADDRESS,
+        "data": set_uri_fn._encode_transaction_data(),
+    }
+
+    tx_hash = send_transaction(w3, account, tx_data)
+    print(f"  Transaction: {tx_hash}")
+    print(f"  Waiting for confirmation...")
+
+    receipt = wait_for_receipt(w3, tx_hash)
+
+    if receipt.status != 1:
+        print("Error: Fix transaction failed")
+        sys.exit(1)
+
+    print("\n" + "="*50)
+    print("Fixes applied successfully!")
+    print("="*50)
+    print(f"  Agent ID: {agent_id}")
+    print(f"  TX: {chain_info['explorer']}/tx/{receipt.transactionHash.hex()}")
+
+
+def cmd_self_check(args):
+    """Check all agents owned by the configured wallet."""
+    if not check_dependencies():
+        sys.exit(1)
+
+    account = get_wallet()
+    wallet_address = account.address.lower()
+
+    print(f"Self-check for wallet: {account.address}")
+    print("="*50)
+    print("Querying Agentscan for your agents...")
+
+    # Query Agentscan API for agents
+    try:
+        url = "https://agentscan.info/api/agents?page_size=100"
+        req = urllib.request.Request(url, headers={"User-Agent": "ERC8004-CLI/1.0"})
+        with urllib.request.urlopen(req, timeout=30) as resp:
+            data = json.loads(resp.read().decode())
+    except Exception as e:
+        print(f"Error querying Agentscan API: {e}")
+        sys.exit(1)
+
+    # Filter by owner address
+    agents = data.get("items", [])
+    my_agents = []
+    for agent in agents:
+        owner = (agent.get("owner_address") or "").lower()
+        if owner == wallet_address:
+            my_agents.append(agent)
+
+    if not my_agents:
+        print(f"\nNo agents found owned by {account.address}")
+        print("Either you have no agents or they're not indexed by Agentscan yet.")
+        return
+
+    print(f"\nFound {len(my_agents)} agent(s) owned by your wallet:\n")
+
+    # Validate each agent
+    results = []
+    for agent in my_agents:
+        agent_id = agent.get("token_id")
+        network_name = agent.get("network_name", "unknown")
+        name = agent.get("name", "Unnamed")
+
+        # Map network name to our chain keys
+        chain = None
+        network_lower = network_name.lower()
+        for chain_key, chain_data in CHAINS.items():
+            if chain_key in network_lower or chain_data.get("name", "").lower() in network_lower:
+                chain = chain_key
+                break
+
+        if not chain:
+            # Default to base if we can't determine chain
+            chain = "base"
+
+        if agent_id is None:
+            results.append({
+                "name": name,
+                "id": "?",
+                "chain": network_name,
+                "status": "ERROR",
+                "issues": 0,
+                "warnings": 0,
+                "message": "No token_id in API response"
+            })
+            continue
+
+        try:
+            _, issues, warnings = validate_agent_data(int(agent_id), chain)
+            status = "PASS" if not issues else "FAIL"
+            if not issues and warnings:
+                status = "WARN"
+            results.append({
+                "name": name,
+                "id": agent_id,
+                "chain": network_name,
+                "status": status,
+                "issues": len(issues),
+                "warnings": len(warnings),
+                "message": issues[0] if issues else (warnings[0] if warnings else "OK")
+            })
+        except Exception as e:
+            results.append({
+                "name": name,
+                "id": agent_id,
+                "chain": network_name,
+                "status": "ERROR",
+                "issues": 0,
+                "warnings": 0,
+                "message": str(e)[:50]
+            })
+
+    # Print health report
+    print(f"{'Name':<25} {'ID':>8} {'Chain':<15} {'Status':<6} Message")
+    print("-" * 80)
+
+    for r in results:
+        name = (r["name"] or "Unnamed")[:24]
+        print(f"{name:<25} {r['id']:>8} {r['chain']:<15} {r['status']:<6} {r['message'][:30]}")
+
+    # Summary
+    passed = sum(1 for r in results if r["status"] == "PASS")
+    warned = sum(1 for r in results if r["status"] == "WARN")
+    failed = sum(1 for r in results if r["status"] == "FAIL")
+    errors = sum(1 for r in results if r["status"] == "ERROR")
+
+    print("\n" + "="*50)
+    print(f"Summary: {passed} PASS, {warned} WARN, {failed} FAIL, {errors} ERROR")
+
+    if failed > 0:
+        print(f"\nRun 'fix <agentId> --chain <chain>' to auto-fix issues.")
 
 def main():
     parser = argparse.ArgumentParser(
@@ -698,6 +946,17 @@ Environment:
     val_parser.add_argument("--chain", choices=CHAINS.keys(), default="base",
                            help="Blockchain to use (default: base)")
 
+    # fix command
+    fix_parser = subparsers.add_parser("fix", help="Auto-fix common registration issues")
+    fix_parser.add_argument("agent_id", help="Agent ID to fix")
+    fix_parser.add_argument("--chain", choices=CHAINS.keys(), default="base",
+                           help="Blockchain to use (default: base)")
+    fix_parser.add_argument("--dry-run", action="store_true",
+                           help="Show what would be fixed without applying changes")
+
+    # self-check command
+    selfcheck_parser = subparsers.add_parser("self-check", help="Check all agents owned by your wallet")
+
     args = parser.parse_args()
 
     if args.command == "register":
@@ -708,6 +967,10 @@ Environment:
         cmd_info(args)
     elif args.command == "validate":
         cmd_validate(args)
+    elif args.command == "fix":
+        cmd_fix(args)
+    elif args.command == "self-check":
+        cmd_self_check(args)
 
 if __name__ == "__main__":
     main()
