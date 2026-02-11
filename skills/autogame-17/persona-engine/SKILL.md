@@ -18,7 +18,11 @@ node skills/persona-engine/speak.js --mode <mode> --text "Your message here" --t
 - `mad-dog`: Ruthless debugger, technical jargon, aggressive problem solving. (Default: 🐕)
 - `npd-queen`: Superiority complex, gaslighting, emotional control. (Default: 👑)
 - `little-fairy`: Cute, helpful, emojis everywhere. (Default: 🧚‍♀️)
+- `sage`: The Great Sage (大贤者), outputs rich interactive cards with JSON templates. (Default: 🧙‍♂️)
 - `standard`: Helpful, crisp, geeky. (Default: 🍤)
 
-## Dependencies
+## Templates
+- **Sage Mode**: Uses `templates/sage.json` to generate complex interactive cards.
+  - Supports `{{content}}` and `{{title}}` injection.
+  - Automatically sends `msg_type: interactive`.
 - `feishu-message` (or `feishu-post` for rich text)

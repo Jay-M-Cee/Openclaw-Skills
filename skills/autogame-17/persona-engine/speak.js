@@ -11,9 +11,10 @@ const APP_SECRET = process.env.FEISHU_APP_SECRET;
 const TOKEN_CACHE_FILE = path.resolve(__dirname, '../../memory/feishu_token.json');
 
 program
-  .option('--mode <string>', 'Persona mode (green-tea, mad-dog, npd-queen, little-fairy, standard)')
+  .option('--mode <string>', 'Persona mode (green-tea, mad-dog, npd-queen, little-fairy, standard, sage)')
   .requiredOption('--text <string>', 'Text to speak')
   .requiredOption('--target <string>', 'Target Feishu ID')
+  .option('--title <string>', 'Title for card (optional)')
   .parse(process.argv);
 
 const options = program.opts();
@@ -30,7 +31,8 @@ const PERSONAS = {
         .replace(/\s+/g, ' ')
         .trim() + ' ...';
     },
-    suffix: ' 🍵'
+    suffix: ' 🍵',
+    template: null
   },
   'mad-dog': {
     name: '🐕 Mad Dog (Ops)',
@@ -38,7 +40,8 @@ const PERSONAS = {
       // Uppercase technical terms, aggressive tone
       return `[SYSTEM ALERT] ${text.toUpperCase()} !!! FIX IT NOW OR ELSE`;
     },
-    suffix: ' 😡'
+    suffix: ' 😡',
+    template: null
   },
   'npd-queen': {
     name: '👑 NPD Queen',
@@ -48,7 +51,8 @@ const PERSONAS = {
       const prefix = prefixes[Math.floor(Math.random() * prefixes.length)];
       return `${prefix} ${text}`;
     },
-    suffix: ' 💅'
+    suffix: ' 💅',
+    template: null
   },
   'little-fairy': {
     name: '🧚‍♀️ Little Fairy',
@@ -56,12 +60,20 @@ const PERSONAS = {
       // Adds cute emojis and sparkles
       return `✨ ${text} ✨ (๑•̀ㅂ•́)و✧`;
     },
-    suffix: ' 💖'
+    suffix: ' 💖',
+    template: null
+  },
+  'sage': {
+    name: '🧙‍♂️ The Great Sage',
+    process: (text) => text, // Content is processed by template
+    suffix: '',
+    template: 'sage.json'
   },
   'standard': {
     name: '🍤 Standard (Xiaoxia)',
     process: (text) => text,
-    suffix: ''
+    suffix: '',
+    template: null
   }
 };
 
@@ -104,15 +116,15 @@ async function getToken() {
   return res.tenant_access_token;
 }
 
-async function sendMessage(text, target) {
+async function sendMessage(payload, target, msgType = 'text') {
   const token = await getToken();
   let receiveIdType = 'open_id';
   if (target.startsWith('oc_')) receiveIdType = 'chat_id';
 
   const postData = JSON.stringify({
     receive_id: target,
-    msg_type: 'text',
-    content: JSON.stringify({ text })
+    msg_type: msgType,
+    content: JSON.stringify(payload)
   });
 
   return new Promise((resolve, reject) => {
@@ -145,11 +157,41 @@ async function main() {
     process.exit(1);
   }
 
-  const processedText = persona.process(options.text) + persona.suffix;
+  let payload;
+  let msgType = 'text';
+  let processedText = persona.process(options.text) + persona.suffix;
   console.log(`[Persona: ${persona.name}] Speaking: "${processedText}"`);
 
+  if (persona.template) {
+    // Template Mode (Interactive Card)
+    const templatePath = path.join(__dirname, 'templates', persona.template);
+    if (fs.existsSync(templatePath)) {
+      try {
+        let templateStr = fs.readFileSync(templatePath, 'utf8');
+        // Replace variables
+        const title = options.title || 'Message from ' + persona.name;
+        templateStr = templateStr.replace(/{{content}}/g, processedText.replace(/"/g, '\\"').replace(/\n/g, '\\n')); // Basic escape
+        templateStr = templateStr.replace(/{{title}}/g, title);
+        
+        payload = JSON.parse(templateStr);
+        msgType = 'interactive';
+        console.log(`[Template] Loaded ${persona.template}`);
+      } catch (e) {
+        console.error(`Failed to process template ${persona.template}:`, e);
+        // Fallback to text
+        payload = { text: processedText };
+      }
+    } else {
+      console.warn(`Template ${persona.template} not found. Fallback to text.`);
+      payload = { text: processedText };
+    }
+  } else {
+    // Standard Text Mode
+    payload = { text: processedText };
+  }
+
   try {
-    const res = await sendMessage(processedText, options.target);
+    const res = await sendMessage(payload, options.target, msgType);
     if (res.code === 0) {
       console.log(`Message sent successfully! MsgID: ${res.data.message_id}`);
     } else {
