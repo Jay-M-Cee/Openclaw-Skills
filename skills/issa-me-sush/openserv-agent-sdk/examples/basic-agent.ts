@@ -20,7 +20,7 @@ const agent = new Agent({
 agent.addCapability({
   name: 'greet',
   description: 'Greet a user by name',
-  schema: z.object({
+  inputSchema: z.object({
     name: z.string().describe('The name of the user to greet')
   }),
   async run({ args }) {
@@ -39,7 +39,8 @@ async function main() {
       description: 'A simple greeting agent'
     },
     workflow: {
-      name: 'default',
+      name: 'Welcome Wizard',
+      goal: 'Welcome users by name with a warm, personalized greeting message',
       trigger: triggers.webhook({
         waitForCompletion: true,
         input: {
