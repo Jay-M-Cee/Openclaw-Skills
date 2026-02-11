@@ -3,9 +3,15 @@
   "slug": "airdrop-hunter",
   "displayName": "airdrop-hunter",
   "latest": {
-    "version": "1.0.1",
-    "publishedAt": 1770790168010,
-    "commit": "https://github.com/openclaw/skills/commit/7feb56bf311204d9f6a77f50c88e08751c130fad"
+    "version": "1.0.2",
+    "publishedAt": 1770790917419,
+    "commit": null
   },
-  "history": []
+  "history": [
+    {
+      "version": "1.0.1",
+      "publishedAt": 1770790168010,
+      "commit": "https://github.com/openclaw/skills/commit/7feb56bf311204d9f6a77f50c88e08751c130fad"
+    }
+  ]
 }
