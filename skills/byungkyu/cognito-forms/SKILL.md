@@ -1,5 +1,5 @@
 ---
-name: cognitoforms
+name: cognito-forms
 description: |
   Cognito Forms API integration with managed OAuth. Access forms, entries, and documents.
   Use this skill when users want to create, read, update, or delete form entries, or retrieve form submissions.
@@ -8,6 +8,11 @@ compatibility: Requires network access and valid Maton API key
 metadata:
   author: maton
   version: "1.0"
+  clawdbot:
+    emoji: 🧠
+    requires:
+      env:
+        - MATON_API_KEY
 ---
 
 # Cognito Forms
@@ -361,9 +366,7 @@ response = requests.post(
 | 429 | Rate limited (100 requests per 60 seconds) |
 | 4xx/5xx | Passthrough error from Cognito Forms API |
 
-### Troubleshooting: Invalid API Key
-
-**When you receive a "Invalid API key" error, ALWAYS follow these steps before concluding there is an issue:**
+### Troubleshooting: API Key Issues
 
 1. Check that the `MATON_API_KEY` environment variable is set:
 
@@ -382,8 +385,17 @@ print(json.dumps(json.load(urllib.request.urlopen(req)), indent=2))
 EOF
 ```
 
+### Troubleshooting: Invalid App Name
+
+1. Ensure your URL path starts with `cognito-forms`. For example:
+
+- Correct: `https://gateway.maton.ai/cognito-forms/api/forms`
+- Incorrect: `https://gateway.maton.ai/api/forms`
+
 ## Resources
 
 - [Cognito Forms API Overview](https://www.cognitoforms.com/support/475/data-integration/cognito-forms-api)
 - [REST API Reference](https://www.cognitoforms.com/support/476/data-integration/cognito-forms-api/rest-api-reference)
 - [API Reference](https://www.cognitoforms.com/support/476/data-integration/cognito-forms-api/api-reference)
+- [Maton Community](https://discord.com/invite/dBfFAcefs2)
+- [Maton Support](mailto:support@maton.ai)
