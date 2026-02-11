@@ -2,7 +2,7 @@
 name: snapmaker
 description: "Control and monitor Snapmaker 2.0 3D printers via their HTTP API. Status, job management, progress watching, and event monitoring."
 summary: "Snapmaker 2.0 3D printer control: status, jobs, monitoring."
-version: 1.0.0
+version: 1.0.2
 homepage: https://github.com/odrobnik/snapmaker-skill
 metadata:
   {
@@ -28,7 +28,13 @@ Control and monitor Snapmaker 2.0 3D printers via their HTTP API.
 
 ## Configuration
 
-Config stored in `~/clawd/snapmaker/config.json`:
+Preferred: create `config.json` next to `SKILL.md` (gitignored). Start from `config.json.example`.
+
+Alternative:
+- set `SNAPMAKER_CONFIG=/absolute/path/to/config.json`
+- legacy fallback (Oliver setup): `~/clawd/snapmaker/config.json`
+
+Config format:
 
 ```json
 {
@@ -46,6 +52,22 @@ Config stored in `~/clawd/snapmaker/config.json`:
 Look for the `server.token` field (second "token" in the file).
 
 ## Usage
+
+### Discovery
+
+```bash
+# Find Snapmaker printers on the local network (UDP broadcast, port 20054)
+python3 scripts/snapmaker.py discover
+
+# Probe a specific IP (useful across subnets)
+python3 scripts/snapmaker.py discover --target 192.168.0.32
+
+# JSON output
+python3 scripts/snapmaker.py discover --json
+```
+
+Discovery uses the Snapmaker UDP broadcast protocol (no auth required).
+Falls back to HTTP probe using config if UDP gets no reply (e.g. different subnet).
 
 ### Basic Commands
 
@@ -161,6 +183,13 @@ python3 scripts/snapmaker.py status --json | jq '{nozzle: .nozzleTemperature1, b
 ```
 
 ## Troubleshooting
+
+**"Machine is not connected yet" (401 error):**
+- The API requires calling `/api/v1/connect` first before any status queries
+- Example: `curl -X POST "http://192.168.0.32:8080/api/v1/connect?token=YOUR_TOKEN"`
+- The Python script handles this automatically on first request
+- Connection establishes a session that persists until the printer is powered off
+- If using raw curl commands, always call connect first
 
 **Connection refused:**
 - Verify printer IP: `ping 192.168.0.32`
