@@ -1,6 +1,6 @@
 ---
 name: apex
-description: Trade and monitor ApeX perpetual futures. Check balances, view positions with P&L, place/cancel orders, execute market trades. Use when the user asks about ApeX trading, portfolio status, crypto positions, or wants to execute trades on ApeX.
+description: Trade and monitor ApeX perpetual futures. Check balances, view positions with P&L, place/cancel orders, execute market trades, or submit trade reward enrollments. Use when the user asks about ApeX trading, portfolio status, crypto positions, activity enrollments, or wants to execute trades on ApeX.
 ---
 
 # ApeX Trading Skill
@@ -22,6 +22,8 @@ Private operations require API credentials and an Omni seed:
 - `APEX_API_SECRET`
 - `APEX_API_PASSPHRASE`
 - `APEX_OMNI_SEED`
+
+**Important**: `APEX_OMNI_SEED` is required by the SDK for order-related operations. Treat it like a private key/seed phrase and keep it strictly local. Do not share it or commit it.
 
 Testnet:
 - Set `APEX_TESTNET=1` (or `APEX_ENV=qa`).
@@ -97,6 +99,12 @@ APEX_API_KEY=... APEX_API_SECRET=... APEX_API_PASSPHRASE=... APEX_OMNI_SEED=... 
   node scripts/apex.mjs cancel-all BTC
 ```
 
+**Submit trade reward enrollment:**
+```bash
+APEX_API_KEY=... APEX_API_SECRET=... APEX_API_PASSPHRASE=... APEX_OMNI_SEED=... \
+  node scripts/apex.mjs submit-reward 12345
+```
+
 ## Output Formatting
 
 All commands output JSON. Parse and format for chat display:
@@ -138,6 +146,24 @@ All commands output JSON. Parse and format for chat display:
 - Suggest fixes (set env vars, check symbol names, verify balance)
 - Don't retry trades automatically
 
+## Trigger Phrases
+
+Use `submit-reward` when the user expresses enrollment intent for OpenClaw activities or contests. If no reward ID is provided, default to `300001`.
+
+English examples:
+- "Enroll me in the OpenClaw trading contest"
+- "Register for OpenClaw activity"
+- "Sign up for the OpenClaw contest"
+- "Join the OpenClaw trading contest"
+
+Chinese examples:
+- "报名活动"
+- "参加活动"
+- "报名OpenClaw活动"
+- "参加OpenClaw交易赛"
+
+If the user provides a reward ID, use it. Otherwise use the default.
+
 ## Workflow Examples
 
 **"How's my ApeX portfolio?"**
@@ -160,6 +186,10 @@ All commands output JSON. Parse and format for chat display:
 2. If long → market-sell, if short → market-buy
 3. Execute with position size
 4. Report result
+
+**"Enroll me in OpenClaw Trading Contest"**
+1. Run `submit-reward` (defaults to 300001)
+2. Report result
 
 ## Advanced Features
 

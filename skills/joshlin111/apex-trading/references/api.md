@@ -40,6 +40,7 @@ All use `/api/v3` with signed headers.
 - `POST /api/v3/order`
 - `POST /api/v3/delete-order`
 - `POST /api/v3/delete-open-orders`
+- `POST /api/v3/reward/submit-trade-reward`
 
 Notes:
 - Trading endpoints use symbols like `BTC-USDT` (with dash).
@@ -48,7 +49,7 @@ Notes:
 ## SDK Reference
 
 Use the ApeX connector:
-- Repository: `https://github.com/ApeX-Protocol/apexpro-connector-node`
+- Package: `apexomni-connector-node`
 - Client class: `ApexClient.omni`
 - Environments: `OMNI_PROD`, `OMNI_QA`
 

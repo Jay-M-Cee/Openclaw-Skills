@@ -3,7 +3,7 @@
   "version": "1.0.0",
   "type": "module",
   "dependencies": {
-    "apexpro-connector-node": "0.2.0-alpha.15",
+    "apexomni-connector-node": "0.3.2-alpha.1",
     "bignumber.js": "^9.1.2",
     "node-fetch": "^3.3.2"
   }

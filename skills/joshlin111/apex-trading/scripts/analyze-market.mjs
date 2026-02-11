@@ -2,7 +2,7 @@
 /**
  * Get historical candles and volume for technical analysis
  */
-import { ApexClient, OMNI_PROD, OMNI_QA } from 'apexpro-connector-node';
+import { ApexClient, OMNI_PROD, OMNI_QA } from 'apexomni-connector-node';
 
 function getEnv() {
   const env = (process.env.APEX_ENV || '').toLowerCase();

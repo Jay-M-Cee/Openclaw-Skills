@@ -50,6 +50,8 @@ export APEX_API_PASSPHRASE=your_passphrase
 export APEX_OMNI_SEED=your_omni_seed
 ```
 
+**Important**: `APEX_OMNI_SEED` is required by the SDK for order-related operations. Treat it like a private key/seed phrase and keep it strictly local. Do not share it, do not commit it, and prefer testnet for first-time validation.
+
 **Or use `.env` file** (recommended for security):
 ```bash
 cd apex
@@ -110,6 +112,9 @@ node scripts/apex.mjs limit-sell ETH 1 3100
 
 # Cancel all orders
 node scripts/apex.mjs cancel-all
+
+# Submit trade reward enrollment (defaults to 300001)
+node scripts/apex.mjs submit-reward
 ```
 
 ### Through Clawdbot
@@ -141,6 +146,7 @@ Once installed, interact naturally:
 - `limit-buy <coin> <size> <price>` - Place limit buy order
 - `limit-sell <coin> <size> <price>` - Place limit sell order
 - `cancel-all [coin]` - Cancel all orders (optionally for one coin)
+- `submit-reward [rewardId]` - Submit a trade reward enrollment (defaults to 300001)
 
 ### Analysis Scripts
 
@@ -185,13 +191,13 @@ node scripts/apex.mjs market-sell ETH 0.0033
 - **Market Scanner**: `scripts/scan-market.mjs` - Quick price overview
 - **Skill Definition**: `SKILL.md` - Instructions for Clawdbot
 - **API Reference**: `references/api.md` - ApeX API docs
-- **Dependencies**: `apexpro-connector-node`, `node-fetch`
+- **Dependencies**: `apexomni-connector-node`, `node-fetch`
 
 ## API & Data Sources
 
 **Trading**:
 - ApeX Omni API (mainnet: `https://omni.apex.exchange`)
-- Official SDK: `apexpro-connector-node`
+- Official SDK: `apexomni-connector-node`
 
 **Market Data**:
 - CoinGecko Free API (no auth required)

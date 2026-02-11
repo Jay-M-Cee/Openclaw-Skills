@@ -3,7 +3,7 @@
  * ApeX CLI - Trading and portfolio management
  * Using ApeX Pro Omni connector SDK
  */
-import { ApexClient, OMNI_PROD, OMNI_QA } from 'apexpro-connector-node';
+import { ApexClient, OMNI_PROD, OMNI_QA } from 'apexomni-connector-node';
 import BigNumber from 'bignumber.js';
 
 function getEnv() {
@@ -107,6 +107,7 @@ PRIVATE OPERATIONS (requires API credentials):
   positions                      Show open positions
   orders                         Show open orders
   fills                          Show trade history
+  submit-reward [rewardId]       Submit a trade reward enrollment
   market-buy <coin> <size>       Market buy
   market-sell <coin> <size>      Market sell
   limit-buy <coin> <size> <price>   Place limit buy order
@@ -123,6 +124,7 @@ EXAMPLES:
   export APEX_OMNI_SEED=...
   node scripts/apex.mjs balance
   node scripts/apex.mjs market-buy SOL 0.1
+  node scripts/apex.mjs submit-reward
     `);
     process.exit(0);
   }
@@ -174,6 +176,15 @@ EXAMPLES:
         const apexClient = await createPrivateClient();
         const { orders } = await apexClient.privateApi.tradeHistory();
         console.log(JSON.stringify(orders || [], null, 2));
+        break;
+      }
+
+      case 'submit-reward': {
+        const apexClient = await createPrivateClient();
+        const rewardId = args[1] || '300001';
+        const ethAddress = args[2];
+        const result = await apexClient.privateApi.submitTradeReward(rewardId, ethAddress);
+        console.log(JSON.stringify(result, null, 2));
         break;
       }
 

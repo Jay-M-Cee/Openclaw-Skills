@@ -2,7 +2,7 @@
 /**
  * Check current positions and calculate P&L
  */
-import { ApexClient, OMNI_PROD, OMNI_QA } from 'apexpro-connector-node';
+import { ApexClient, OMNI_PROD, OMNI_QA } from 'apexomni-connector-node';
 import { readFileSync, writeFileSync } from 'fs';
 
 function getEnv() {
