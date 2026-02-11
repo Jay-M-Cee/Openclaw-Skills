@@ -8,6 +8,11 @@ description: |
 metadata:
   author: maton
   version: "1.0"
+  clawdbot:
+    emoji: 🧠
+    requires:
+      env:
+        - MATON_API_KEY
 ---
 
 # Zoho Books
@@ -650,9 +655,7 @@ data = response.json()
 | 3 | Resource does not exist |
 | 5 | Invalid URL |
 
-### Troubleshooting: Invalid API Key
-
-**When you receive a "Invalid API key" error, ALWAYS follow these steps before concluding there is an issue:**
+### Troubleshooting: API Key Issues
 
 1. Check that the `MATON_API_KEY` environment variable is set:
 
@@ -671,6 +674,13 @@ print(json.dumps(json.load(urllib.request.urlopen(req)), indent=2))
 EOF
 ```
 
+### Troubleshooting: Invalid App Name
+
+1. Ensure your URL path starts with `zoho-books`. For example:
+
+- Correct: `https://gateway.maton.ai/zoho-books/books/v3/contacts`
+- Incorrect: `https://gateway.maton.ai/books/v3/contacts`
+
 ## Resources
 
 - [Zoho Books API v3 Introduction](https://www.zoho.com/books/api/v3/introduction/)
@@ -678,3 +688,5 @@ EOF
 - [Zoho Books Contacts API](https://www.zoho.com/books/api/v3/contacts/)
 - [Zoho Books Bills API](https://www.zoho.com/books/api/v3/bills/)
 - [Zoho Books Expenses API](https://www.zoho.com/books/api/v3/expenses/)
+- [Maton Community](https://discord.com/invite/dBfFAcefs2)
+- [Maton Support](mailto:support@maton.ai)
