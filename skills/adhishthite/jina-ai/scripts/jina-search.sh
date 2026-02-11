@@ -1,5 +1,14 @@
 #!/usr/bin/env bash
 # jina-search.sh — Web search via Jina Search API
+#
+# SECURITY MANIFEST:
+#   Environment variables accessed: JINA_API_KEY (only)
+#   External endpoints called: https://s.jina.ai/ (only)
+#   Local files read: none
+#   Local files written: none
+#   Data sent: Search query provided as argument + JINA_API_KEY via Authorization header
+#   Data received: Markdown/JSON search results via stdout
+#
 # Usage: jina-search.sh "<query>" [--json]
 
 set -euo pipefail

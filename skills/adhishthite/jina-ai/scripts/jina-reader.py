@@ -2,6 +2,14 @@
 """
 jina-reader.py — Read any URL via Jina Reader API.
 
+SECURITY MANIFEST:
+    Environment variables accessed: JINA_API_KEY (only)
+    External endpoints called: https://r.jina.ai/ (only)
+    Local files read: none
+    Local files written: none
+    Data sent: URL provided as argument + JINA_API_KEY via Authorization header
+    Data received: Markdown/JSON content via stdout
+
 Usage:
     python3 jina-reader.py <url> [--json]
 

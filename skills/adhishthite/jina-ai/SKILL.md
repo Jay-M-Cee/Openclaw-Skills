@@ -1,14 +1,16 @@
 ---
 name: jina
 description: Web reading and searching via Jina AI APIs. Fetch clean markdown from URLs (r.jina.ai), web search (s.jina.ai), or deep multi-step research (DeepSearch).
+homepage: "https://github.com/adhishthite/jina-ai-skill"
 metadata:
   {
-    "openclaw":
+    "clawdbot":
       {
         "emoji": "🔍",
         "requires": { "env": ["JINA_API_KEY"] },
-        "primaryEnv": "JINA_API_KEY"
-      }
+        "primaryEnv": "JINA_API_KEY",
+        "files": ["scripts/*"],
+      },
   }
 ---
 
@@ -16,7 +18,32 @@ metadata:
 
 Web reading and search powered by Jina AI. Requires `JINA_API_KEY` environment variable.
 
+> **Trust & Privacy:** By using this skill, URLs and queries are transmitted to Jina AI (jina.ai). Only install if you trust Jina with your data.
+
+> **Model Invocation:** This skill may be invoked autonomously by the model without explicit user trigger (standard for integration skills). If you prefer manual-only invocation, disable model invocation in your OpenClaw skill settings.
+
 **Get your API key:** https://jina.ai/ → Dashboard → API Keys
+
+## External Endpoints
+
+This skill makes HTTP requests to the following external endpoints only:
+
+| Endpoint | URL Pattern | Purpose |
+|----------|-------------|---------|
+| **Reader API** | `https://r.jina.ai/{url}` | Sends URL content request to Jina for conversion to markdown |
+| **Search API** | `https://s.jina.ai/{query}` | Sends search query to Jina for web search results |
+| **DeepSearch API** | `https://deepsearch.jina.ai/v1/chat/completions` | Sends research question to Jina for multi-step research |
+
+No other external network calls are made by this skill.
+
+## Security & Privacy
+
+- **Authentication:** Only your `JINA_API_KEY` is transmitted to Jina's servers (via `Authorization` header)
+- **Data sent:** URLs and search queries you provide are sent to Jina's servers for processing
+- **Local files:** No local files are read or transmitted by this skill
+- **Local storage:** No data is stored locally beyond stdout output
+- **Environment access:** Scripts only access the `JINA_API_KEY` environment variable; no other env vars are read
+- **Cookies:** Cookies are not forwarded by default; the `X-Set-Cookie` header is available for authenticated content but is opt-in only
 
 ## Endpoints
 
@@ -80,12 +107,12 @@ Or use the helper script: `scripts/jina-reader.sh <url> [--json]`
 | `X-Respond-Timing` | `respondTiming` | When page is "ready" (`html`, `network-idle`, etc.) |
 | `X-No-Cache` | `noCache` | Bypass cached content |
 | `X-Proxy` | `proxy` | Country code or `auto` for proxy |
-| `X-Set-Cookie` | `setCookies` | Forward cookies for auth |
+| `X-Set-Cookie` | `setCookies` | Forward cookies for authenticated content |
 
 ### Common Patterns
 
 ```bash
-# Strip images and ads, extract main content
+# Extract main content, remove navigation elements
 curl -s "https://r.jina.ai/https://example.com/article" \
   -H "Authorization: Bearer $JINA_API_KEY" \
   -H "X-Retain-Images: none" \

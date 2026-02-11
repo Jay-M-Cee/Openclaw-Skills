@@ -1,5 +1,14 @@
 #!/usr/bin/env bash
 # jina-deepsearch.sh — Deep research via Jina DeepSearch API
+#
+# SECURITY MANIFEST:
+#   Environment variables accessed: JINA_API_KEY (only)
+#   External endpoints called: https://deepsearch.jina.ai/v1/chat/completions (only)
+#   Local files read: none
+#   Local files written: none
+#   Data sent: Research question provided as argument + JINA_API_KEY via Authorization header
+#   Data received: JSON response with research answer (content extracted to stdout)
+#
 # Usage: jina-deepsearch.sh "<question>"
 
 set -euo pipefail
