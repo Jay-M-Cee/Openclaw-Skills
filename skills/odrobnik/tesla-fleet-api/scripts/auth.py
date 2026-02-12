@@ -2,7 +2,7 @@
 """Tesla Fleet API authentication and configuration.
 
 State layout (default dir: ~/.openclaw/tesla-fleet-api; legacy: ~/.moltbot/tesla-fleet-api):
-  - .env          provider creds / overrides (TESLA_CLIENT_ID, TESLA_CLIENT_SECRET, ...)
+  - config.json   provider creds (client_id, client_secret) + config
   - config.json   non-token configuration
   - auth.json     OAuth tokens
 
@@ -39,7 +39,7 @@ DEFAULT_REDIRECT_URI = "http://localhost:18080/callback"
 
 @dataclass
 class TeslaRuntime:
-    # Provider creds (prefer .env)
+    # Provider creds (prefer env vars, fallback to config.json)
     client_id: Optional[str]
     client_secret: Optional[str]
 
@@ -120,7 +120,7 @@ def load_runtime(dir_path: str, *, args: argparse.Namespace) -> TeslaRuntime:
 
 def cmd_login(rt: TeslaRuntime, dir_path: str) -> int:
     if not rt.client_id:
-        print("Missing client_id (set TESLA_CLIENT_ID in ~/.openclaw/tesla-fleet-api/.env)", file=sys.stderr)
+        print("Missing client_id (set TESLA_CLIENT_ID in environment or config.json)", file=sys.stderr)
         return 1
 
     scope = "openid offline_access vehicle_device_data vehicle_cmds vehicle_location"
@@ -153,7 +153,7 @@ def cmd_login(rt: TeslaRuntime, dir_path: str) -> int:
 
 def cmd_exchange(rt: TeslaRuntime, dir_path: str, code: str) -> int:
     if not rt.client_id or not rt.client_secret:
-        print("Missing client_id/client_secret (set TESLA_CLIENT_ID and TESLA_CLIENT_SECRET in .env)", file=sys.stderr)
+        print("Missing client_id/client_secret (set TESLA_CLIENT_ID and TESLA_CLIENT_SECRET in environment or config.json)", file=sys.stderr)
         return 1
 
     fields = {
@@ -212,7 +212,7 @@ def cmd_register(rt: TeslaRuntime, dir_path: str) -> int:
         print("Specify --domain or set TESLA_DOMAIN / config.json:domain", file=sys.stderr)
         return 1
     if not rt.client_id or not rt.client_secret:
-        print("Missing client_id/client_secret (set in .env)", file=sys.stderr)
+        print("Missing client_id/client_secret (set in environment or config.json)", file=sys.stderr)
         return 1
 
     # Partner token via client_credentials

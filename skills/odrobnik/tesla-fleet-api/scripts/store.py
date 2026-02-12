@@ -5,14 +5,16 @@ We keep state in the user's home dir (outside the skill folder):
   ~/.openclaw/tesla-fleet-api/ (legacy: ~/.moltbot/tesla-fleet-api/)
 
 Files:
-  - .env          (provider creds + overrides)
-  - config.json   (non-token configuration)
+  - config.json   (non-token configuration + provider creds)
   - auth.json     (OAuth tokens)
   - vehicles.json (cached vehicle list)
   - places.json   (named lat/lon places)
 
 We also support a legacy single-file layout:
   - tesla-fleet.json
+
+Auth: set TESLA_CLIENT_ID / TESLA_CLIENT_SECRET in the environment,
+or put them in config.json (keys: "client_id", "client_secret").
 
 This module is stdlib-only and safe to import from any of the scripts.
 """
@@ -67,13 +69,34 @@ def _mkdirp(path: str) -> None:
 
 
 def load_env_file(dir_path: str) -> None:
-    """Load KEY=VALUE pairs from <state-dir>/.env into os.environ.
+    """Load provider creds from config.json into os.environ.
 
-    - comments (# ...) and blank lines ignored
-    - surrounding single/double quotes stripped
-    - existing env vars are NOT overwritten
+    Maps config.json keys to environment variables:
+      client_id       -> TESLA_CLIENT_ID
+      client_secret   -> TESLA_CLIENT_SECRET
+      audience        -> TESLA_AUDIENCE
+
+    Existing env vars are NOT overwritten.
+    Falls back to legacy .env file if config.json doesn't have the keys.
     """
+    # Primary: config.json
+    cfg = get_config(dir_path)
+    _env_map = {
+        "client_id": "TESLA_CLIENT_ID",
+        "client_secret": "TESLA_CLIENT_SECRET",
+        "audience": "TESLA_AUDIENCE",
+    }
+    loaded_from_config = False
+    for cfg_key, env_key in _env_map.items():
+        val = cfg.get(cfg_key)
+        if val and env_key not in os.environ:
+            os.environ[env_key] = str(val)
+            loaded_from_config = True
 
+    if loaded_from_config:
+        return
+
+    # Legacy fallback: .env file (will be removed in a future version)
     p = env_path(dir_path)
     if not os.path.exists(p):
         return
@@ -90,7 +113,6 @@ def load_env_file(dir_path: str) -> None:
                 if k and k not in os.environ:
                     os.environ[k] = v
     except Exception:
-        # Don't hard-fail on env loading.
         return
 
 
