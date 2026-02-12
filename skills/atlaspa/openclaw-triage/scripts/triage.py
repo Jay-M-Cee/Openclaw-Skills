@@ -1,1242 +1,965 @@
 #!/usr/bin/env python3
 """
-OpenClaw Triage — Incident Response & Forensics for Agent Workspaces
+OpenClaw Triage— Full Incident Response Suite for Agent Workspaces
 
-When a compromise is suspected, triage collects evidence from all available
-security tools (warden, ledger, signet, sentinel), builds a unified timeline,
-assesses the blast radius, and guides recovery.
-
-Usage:
-    triage.py investigate  [--workspace PATH]
-    triage.py timeline     [--hours N] [--workspace PATH]
-    triage.py scope        [--workspace PATH]
-    triage.py evidence     [--output DIR] [--workspace PATH]
-    triage.py status       [--workspace PATH]
-
-For automated containment, remediation playbooks, and evidence export,
-see openclaw-triage-pro.
+Free: investigate, timeline, scope, evidence, status
+Pro:  contain, remediate, export, harden, playbook, protect
 """
 
-import argparse
-import hashlib
-import io
-import json
-import os
-import re
-import shutil
-import sys
-import time
+import argparse, hashlib, io, json, os, re, shutil, stat, subprocess, sys, time
 from datetime import datetime, timezone, timedelta
 from pathlib import Path
 
-# ---------------------------------------------------------------------------
-# Windows Unicode stdout fix
-# ---------------------------------------------------------------------------
+# --- Windows Unicode stdout fix ---
 if sys.stdout.encoding and sys.stdout.encoding.lower() not in ("utf-8", "utf8"):
-    sys.stdout = io.TextIOWrapper(
-        sys.stdout.buffer, encoding="utf-8", errors="replace"
-    )
-    sys.stderr = io.TextIOWrapper(
-        sys.stderr.buffer, encoding="utf-8", errors="replace"
-    )
+    sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8", errors="replace")
+    sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding="utf-8", errors="replace")
 
-# ---------------------------------------------------------------------------
-# Constants
-# ---------------------------------------------------------------------------
-
-TRIAGE_DIR = ".triage"
-TRIAGE_STATE_FILE = "state.json"
-
-SKIP_DIRS = {
-    ".git", ".svn", ".hg", "__pycache__", "node_modules",
-    ".triage", ".integrity", ".ledger", ".signet", ".sentinel",
-    ".venv", "venv", ".env",
-}
-
-SELF_SKILL_DIRS = {"openclaw-triage", "openclaw-triage-pro"}
-
-CRITICAL_WORKSPACE_FILES = {
-    "SOUL.md", "AGENTS.md", "IDENTITY.md", "USER.md",
-    "TOOLS.md", "HEARTBEAT.md",
-}
-
-MEMORY_FILE_PATTERNS = {"MEMORY.md", "memory/"}
-CONFIG_EXTENSIONS = {".json", ".yaml", ".yml", ".toml"}
+# --- Constants ---
+TRIAGE_DIR, TRIAGE_STATE = ".triage", "state.json"
+QUARANTINE_DIR, BACKUPS_DIR = ".triage/quarantine", ".triage/backups"
+SKIP_DIRS = {".git", ".svn", ".hg", "__pycache__", "node_modules", ".triage",
+             ".integrity", ".ledger", ".signet", ".sentinel", ".venv", "venv", ".env"}
+SELF_SKILL_DIRS = {"openclaw-triage", "openclaw-triage"}
+CRITICAL_FILES = {"SOUL.md", "AGENTS.md", "IDENTITY.md", "USER.md", "TOOLS.md", "HEARTBEAT.md"}
+CONFIG_EXTS = {".json", ".yaml", ".yml", ".toml"}
 SKILL_MARKER = "SKILL.md"
-
-# Cross-reference data paths from other OpenClaw tools
 WARDEN_MANIFEST = ".integrity/manifest.json"
+WARDEN_SNAPSHOTS = ".integrity/snapshots"
 LEDGER_CHAIN = ".ledger/chain.jsonl"
 SIGNET_MANIFEST = ".signet/manifest.json"
 SENTINEL_THREATS = ".sentinel/threats.json"
-
-# Patterns that suggest credential exposure
 CREDENTIAL_PATTERNS = [
     r"(?i)(?:api[_-]?key|secret[_-]?key|password|token|auth)\s*[:=]\s*\S+",
     r"(?i)bearer\s+[A-Za-z0-9\-._~+/]+=*",
     r"(?:ghp|gho|ghu|ghs|ghr)_[A-Za-z0-9_]{36,}",
-    r"sk-[A-Za-z0-9]{32,}",
-    r"AKIA[0-9A-Z]{16}",
+    r"sk-[A-Za-z0-9]{32,}", r"AKIA[0-9A-Z]{16}",
 ]
-
-# Patterns suggesting data exfiltration
-EXFIL_URL_PATTERNS = [
+EXFIL_PATTERNS = [
     r"https?://[^\s\"'`>\)]+\?[^\s\"'`>\)]*(?:data|payload|exfil|dump|leak)",
     r"https?://[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}[:/]",
-    r"https?://[^\s\"'`>\)]*\.ngrok\.",
-    r"https?://[^\s\"'`>\)]*webhook\.site",
-    r"https?://[^\s\"'`>\)]*requestbin",
-    r"https?://[^\s\"'`>\)]*pipedream",
+    r"https?://[^\s\"'`>\)]*\.ngrok\.", r"https?://[^\s\"'`>\)]*webhook\.site",
+    r"https?://[^\s\"'`>\)]*requestbin", r"https?://[^\s\"'`>\)]*pipedream",
+]
+SEV_CRIT, SEV_HIGH, SEV_MED, SEV_LOW = "CRITICAL", "HIGH", "MEDIUM", "LOW"
+SEV_RANK = {SEV_CRIT: 4, SEV_HIGH: 3, SEV_MED: 2, SEV_LOW: 1}
+WORK_START, WORK_END = 7, 22
+BURST_FILES, BURST_MINS = 5, 5
+LARGE_THRESHOLD = 1_048_576
+SECURITY_TOOLS = {
+    "warden": {"path": ".integrity/manifest.json", "desc": "File integrity baselines"},
+    "ledger": {"path": ".ledger/chain.jsonl", "desc": "Tamper-evident audit chain"},
+    "signet": {"path": ".signet/manifest.json", "desc": "Skill code-signing"},
+    "sentinel": {"path": ".sentinel/threats.json", "desc": "Threat detection"},
+    "triage": {"path": ".triage/state.json", "desc": "Incident response"},
+}
+RECOMMENDED_HOOKS = [
+    {"event": "SessionStart", "tool": "warden", "desc": "Verify baselines on session start"},
+    {"event": "PreToolUse", "tool": "sentinel", "desc": "Scan tool inputs for threats"},
+    {"event": "PostToolUse", "tool": "ledger", "desc": "Log tool usage to audit chain"},
 ]
 
-# Severity levels
-SEVERITY_CRITICAL = "CRITICAL"
-SEVERITY_HIGH = "HIGH"
-SEVERITY_MEDIUM = "MEDIUM"
-SEVERITY_LOW = "LOW"
-
-SEVERITY_RANK = {
-    SEVERITY_CRITICAL: 4,
-    SEVERITY_HIGH: 3,
-    SEVERITY_MEDIUM: 2,
-    SEVERITY_LOW: 1,
-}
-
-# Default working hours (24-hour format)
-DEFAULT_WORK_HOURS_START = 7
-DEFAULT_WORK_HOURS_END = 22
-
-# Threshold for burst detection (files modified in a window)
-BURST_THRESHOLD_FILES = 5
-BURST_WINDOW_MINUTES = 5
-
-# Large file threshold in bytes (1 MB)
-LARGE_FILE_THRESHOLD = 1_048_576
-
-
-# ---------------------------------------------------------------------------
-# Utility functions
-# ---------------------------------------------------------------------------
-
-def sha256_file(path: Path) -> str:
-    """Compute SHA-256 hash of a file."""
+# --- Utilities ---
+def sha256_file(p):
     h = hashlib.sha256()
     try:
-        with open(path, "rb") as f:
-            for chunk in iter(lambda: f.read(8192), b""):
-                h.update(chunk)
+        with open(p, "rb") as f:
+            for c in iter(lambda: f.read(8192), b""): h.update(c)
         return h.hexdigest()
-    except (OSError, PermissionError):
-        return "ERROR_READING_FILE"
+    except (OSError, PermissionError): return "ERROR_READING_FILE"
 
+def now_iso(): return datetime.now(timezone.utc).isoformat()
+def now_utc(): return datetime.now(timezone.utc)
+def ts_to_dt(ts): return datetime.fromtimestamp(ts, tz=timezone.utc)
+def dt_to_iso(d): return d.isoformat()
 
-def now_iso() -> str:
-    return datetime.now(timezone.utc).isoformat()
-
-
-def now_utc() -> datetime:
-    return datetime.now(timezone.utc)
-
-
-def ts_to_dt(timestamp: float) -> datetime:
-    """Convert a POSIX timestamp to timezone-aware UTC datetime."""
-    return datetime.fromtimestamp(timestamp, tz=timezone.utc)
-
-
-def dt_to_iso(dt: datetime) -> str:
-    return dt.isoformat()
-
-
-def resolve_workspace(ns) -> Path:
-    """Determine workspace path from argparse namespace, env, or defaults."""
+def resolve_workspace(ns):
     ws = getattr(ns, "workspace", None)
-
-    if ws is None:
-        ws = os.environ.get("OPENCLAW_WORKSPACE")
-
-    if ws is None:
-        cwd = Path.cwd()
-        if (cwd / "AGENTS.md").exists():
-            ws = str(cwd)
-
-    if ws is None:
-        ws = str(Path.home() / ".openclaw" / "workspace")
-
+    if ws is None: ws = os.environ.get("OPENCLAW_WORKSPACE")
+    if ws is None and (Path.cwd() / "AGENTS.md").exists(): ws = str(Path.cwd())
+    if ws is None: ws = str(Path.home() / ".openclaw" / "workspace")
     p = Path(ws)
-    if not p.is_dir():
-        print(f"ERROR: Workspace not found: {p}", file=sys.stderr)
-        sys.exit(1)
+    if not p.is_dir(): print(f"ERROR: Workspace not found: {p}", file=sys.stderr); sys.exit(1)
     return p
 
+def _triage_dir(ws): return ws / ".triage"
+def _state_path(ws): return _triage_dir(ws) / TRIAGE_STATE
 
-def triage_dir(workspace: Path) -> Path:
-    return workspace / TRIAGE_DIR
-
-
-def state_path(workspace: Path) -> Path:
-    return triage_dir(workspace) / TRIAGE_STATE_FILE
-
-
-def load_state(workspace: Path) -> dict | None:
-    sp = state_path(workspace)
-    if not sp.exists():
-        return None
+def load_state(ws):
+    sp = _state_path(ws)
+    if not sp.exists(): return None
     try:
-        with open(sp, "r", encoding="utf-8") as f:
-            return json.load(f)
-    except (json.JSONDecodeError, OSError):
-        return None
+        with open(sp, "r", encoding="utf-8") as f: return json.load(f)
+    except (json.JSONDecodeError, OSError): return None
 
+def save_state(ws, st):
+    td = _triage_dir(ws); td.mkdir(parents=True, exist_ok=True)
+    with open(td / TRIAGE_STATE, "w", encoding="utf-8") as f: json.dump(st, f, indent=2)
 
-def save_state(workspace: Path, state: dict):
-    td = triage_dir(workspace)
-    td.mkdir(parents=True, exist_ok=True)
-    sp = td / TRIAGE_STATE_FILE
-    with open(sp, "w", encoding="utf-8") as f:
-        json.dump(state, f, indent=2)
-
-
-def read_json_safe(path: Path) -> dict | list | None:
-    """Safely read a JSON file, returning None on any error."""
-    if not path.is_file():
-        return None
+def read_json(p):
+    if not p.is_file(): return None
     try:
-        with open(path, "r", encoding="utf-8") as f:
-            return json.load(f)
-    except (json.JSONDecodeError, OSError, UnicodeDecodeError):
-        return None
+        with open(p, "r", encoding="utf-8") as f: return json.load(f)
+    except (json.JSONDecodeError, OSError, UnicodeDecodeError): return None
 
-
-def read_jsonl_safe(path: Path) -> list[dict]:
-    """Safely read a JSONL file, returning list of parsed objects."""
-    if not path.is_file():
-        return []
-    entries = []
+def read_jsonl(p):
+    if not p.is_file(): return []
+    out = []
     try:
-        with open(path, "r", encoding="utf-8") as f:
-            for line in f:
-                line = line.strip()
-                if line:
-                    try:
-                        entries.append(json.loads(line))
-                    except json.JSONDecodeError:
-                        entries.append({"_raw": line, "_parse_error": True})
-    except (OSError, UnicodeDecodeError):
-        pass
-    return entries
+        with open(p, "r", encoding="utf-8") as f:
+            for ln in f:
+                ln = ln.strip()
+                if ln:
+                    try: out.append(json.loads(ln))
+                    except json.JSONDecodeError: out.append({"_raw": ln, "_parse_error": True})
+    except (OSError, UnicodeDecodeError): pass
+    return out
 
-
-def read_file_text(path: Path) -> str | None:
-    """Read file as text, returning None if binary or unreadable."""
+def read_text(p):
     try:
-        with open(path, "r", encoding="utf-8") as f:
-            return f.read()
-    except (UnicodeDecodeError, ValueError, OSError):
-        return None
+        with open(p, "r", encoding="utf-8") as f: return f.read()
+    except (UnicodeDecodeError, ValueError, OSError): return None
 
-
-# ---------------------------------------------------------------------------
-# Workspace file collection
-# ---------------------------------------------------------------------------
-
-def collect_all_files(workspace: Path) -> list[dict]:
-    """
-    Walk the workspace and collect metadata for every file.
-    Returns a list of dicts with: rel_path, abs_path, size, mtime, mtime_dt, hash.
-    """
+def collect_files(ws):
     files = []
-    for root, dirs, filenames in os.walk(workspace):
-        # Prune skipped directories
-        dirs[:] = [
-            d for d in dirs
-            if d not in SKIP_DIRS
-            and not (
-                Path(root).relative_to(workspace).parts[:1] == ("skills",)
-                and d in SELF_SKILL_DIRS
-            )
-        ]
-        for fname in filenames:
-            abspath = Path(root) / fname
-            try:
-                rel = abspath.relative_to(workspace).as_posix()
-            except ValueError:
-                continue
-            try:
-                stat = abspath.stat()
-            except OSError:
-                continue
-            files.append({
-                "rel_path": rel,
-                "abs_path": abspath,
-                "size": stat.st_size,
-                "mtime": stat.st_mtime,
-                "mtime_dt": ts_to_dt(stat.st_mtime),
-                "hash": None,  # computed lazily
-            })
+    for root, dirs, fnames in os.walk(ws):
+        dirs[:] = [d for d in dirs if d not in SKIP_DIRS and not (
+            Path(root).relative_to(ws).parts[:1] == ("skills",) and d in SELF_SKILL_DIRS)]
+        for fn in fnames:
+            ap = Path(root) / fn
+            try: rel = ap.relative_to(ws).as_posix()
+            except ValueError: continue
+            try: s = ap.stat()
+            except OSError: continue
+            files.append({"rel": rel, "abs": ap, "size": s.st_size,
+                          "mt": s.st_mtime, "dt": ts_to_dt(s.st_mtime), "hash": None})
     return files
 
-
-def classify_path(rel_path: str) -> str:
-    """Classify a file path into a risk category."""
-    name = Path(rel_path).name
-
-    if name in CRITICAL_WORKSPACE_FILES:
-        return "critical"
-    if rel_path == "MEMORY.md" or rel_path.startswith("memory/"):
-        return "memory"
-    if rel_path.startswith("skills/"):
-        return "skill"
-    if Path(rel_path).suffix in CONFIG_EXTENSIONS and "/" not in rel_path:
-        return "config"
-    if rel_path.startswith("."):
-        return "dotfile"
+def classify(rel):
+    name = Path(rel).name
+    if name in CRITICAL_FILES: return "critical"
+    if rel == "MEMORY.md" or rel.startswith("memory/"): return "memory"
+    if rel.startswith("skills/"): return "skill"
+    if Path(rel).suffix in CONFIG_EXTS and "/" not in rel: return "config"
+    if rel.startswith("."): return "dotfile"
     return "other"
 
+def get_hash(e):
+    if e["hash"] is None: e["hash"] = sha256_file(e["abs"])
+    return e["hash"]
 
-def compute_hash(entry: dict) -> str:
-    """Compute and cache the SHA-256 hash for a file entry."""
-    if entry["hash"] is None:
-        entry["hash"] = sha256_file(entry["abs_path"])
-    return entry["hash"]
-
-
-# ---------------------------------------------------------------------------
-# Cross-reference: other OpenClaw tools
-# ---------------------------------------------------------------------------
-
-def check_warden(workspace: Path) -> list[dict]:
-    """Check warden manifest for baseline deviations."""
-    findings = []
-    data = read_json_safe(workspace / WARDEN_MANIFEST)
+# --- Cross-reference checks ---
+def check_warden(ws):
+    findings = []; data = read_json(ws / WARDEN_MANIFEST)
     if data is None:
-        findings.append({
-            "source": "warden",
-            "severity": SEVERITY_LOW,
-            "detail": "No warden baseline found (.integrity/manifest.json missing)",
-        })
-        return findings
-
-    baseline_files = data.get("files", {})
-    for rel, info in baseline_files.items():
-        abspath = workspace / rel
-        if not abspath.is_file():
-            findings.append({
-                "source": "warden",
-                "severity": SEVERITY_HIGH,
-                "detail": f"Baseline file missing: {rel}",
-            })
-            continue
-        current_hash = sha256_file(abspath)
-        if current_hash != info.get("sha256", ""):
+        return [{"src": "warden", "sev": SEV_LOW, "msg": "No warden baseline found"}]
+    bf = data.get("files", {})
+    for rel, info in bf.items():
+        ap = ws / rel
+        if not ap.is_file():
+            findings.append({"src": "warden", "sev": SEV_HIGH, "msg": f"Baseline file missing: {rel}"})
+        elif sha256_file(ap) != info.get("sha256", ""):
             cat = info.get("category", "unknown")
-            sev = SEVERITY_HIGH if cat == "critical" else SEVERITY_MEDIUM
-            findings.append({
-                "source": "warden",
-                "severity": sev,
-                "detail": f"File modified since baseline: {rel} (category: {cat})",
-            })
-
-    findings.append({
-        "source": "warden",
-        "severity": SEVERITY_LOW,
-        "detail": f"Warden baseline present: {len(baseline_files)} files tracked",
-    })
+            findings.append({"src": "warden", "sev": SEV_HIGH if cat == "critical" else SEV_MED,
+                             "msg": f"Modified since baseline: {rel} ({cat})"})
+    findings.append({"src": "warden", "sev": SEV_LOW, "msg": f"Warden: {len(bf)} files tracked"})
     return findings
 
-
-def check_ledger(workspace: Path) -> list[dict]:
-    """Check ledger chain for breaks or suspicious entries."""
-    findings = []
-    entries = read_jsonl_safe(workspace / LEDGER_CHAIN)
+def check_ledger(ws):
+    findings = []; entries = read_jsonl(ws / LEDGER_CHAIN)
     if not entries:
-        findings.append({
-            "source": "ledger",
-            "severity": SEVERITY_LOW,
-            "detail": "No ledger chain found (.ledger/chain.jsonl missing or empty)",
-        })
-        return findings
-
-    # Check for parse errors (possible tampering)
-    parse_errors = [e for e in entries if e.get("_parse_error")]
-    if parse_errors:
-        findings.append({
-            "source": "ledger",
-            "severity": SEVERITY_HIGH,
-            "detail": f"Ledger chain contains {len(parse_errors)} unparseable entries (possible tampering)",
-        })
-
-    # Check for chain integrity (sequential hashes if present)
-    prev_hash = None
-    breaks = 0
-    for entry in entries:
-        if entry.get("_parse_error"):
-            breaks += 1
-            prev_hash = None
-            continue
-        entry_prev = entry.get("prev_hash") or entry.get("previous_hash")
-        if prev_hash is not None and entry_prev is not None:
-            if entry_prev != prev_hash:
-                breaks += 1
-        current_hash = entry.get("hash") or entry.get("entry_hash")
-        if current_hash:
-            prev_hash = current_hash
-        else:
-            prev_hash = None
-
-    if breaks > 0:
-        findings.append({
-            "source": "ledger",
-            "severity": SEVERITY_CRITICAL,
-            "detail": f"Ledger chain has {breaks} break(s) — possible tampering or data loss",
-        })
-
-    findings.append({
-        "source": "ledger",
-        "severity": SEVERITY_LOW,
-        "detail": f"Ledger chain present: {len(entries)} entries",
-    })
+        return [{"src": "ledger", "sev": SEV_LOW, "msg": "No ledger chain found"}]
+    pe = [e for e in entries if e.get("_parse_error")]
+    if pe: findings.append({"src": "ledger", "sev": SEV_HIGH,
+                            "msg": f"Ledger: {len(pe)} unparseable entries"})
+    prev, breaks = None, 0
+    for e in entries:
+        if e.get("_parse_error"): breaks += 1; prev = None; continue
+        ep = e.get("prev_hash") or e.get("previous_hash")
+        if prev and ep and ep != prev: breaks += 1
+        prev = e.get("hash") or e.get("entry_hash") or None
+    if breaks: findings.append({"src": "ledger", "sev": SEV_CRIT,
+                                "msg": f"Ledger chain: {breaks} break(s)"})
+    findings.append({"src": "ledger", "sev": SEV_LOW, "msg": f"Ledger: {len(entries)} entries"})
     return findings
 
-
-def check_signet(workspace: Path) -> list[dict]:
-    """Check signet manifest for tampered skills."""
-    findings = []
-    data = read_json_safe(workspace / SIGNET_MANIFEST)
+def check_signet(ws):
+    findings = []; data = read_json(ws / SIGNET_MANIFEST)
     if data is None:
-        findings.append({
-            "source": "signet",
-            "severity": SEVERITY_LOW,
-            "detail": "No signet manifest found (.signet/manifest.json missing)",
-        })
-        return findings
-
-    skills = data.get("skills", data.get("signatures", {}))
-    if isinstance(skills, dict):
-        tampered = []
-        for skill_name, info in skills.items():
-            expected_hash = info.get("hash") or info.get("sha256")
-            skill_path = info.get("path")
-            if expected_hash and skill_path:
-                abspath = workspace / skill_path
-                if abspath.is_file():
-                    actual = sha256_file(abspath)
-                    if actual != expected_hash:
-                        tampered.append(skill_name)
-                elif abspath.is_dir():
-                    # Directory-level check — just note it
-                    pass
-
-        if tampered:
-            findings.append({
-                "source": "signet",
-                "severity": SEVERITY_CRITICAL,
-                "detail": f"Tampered skill signatures detected: {', '.join(tampered)}",
-            })
-
-    findings.append({
-        "source": "signet",
-        "severity": SEVERITY_LOW,
-        "detail": f"Signet manifest present: {len(skills) if isinstance(skills, dict) else 0} skill(s) tracked",
-    })
+        return [{"src": "signet", "sev": SEV_LOW, "msg": "No signet manifest found"}]
+    sk = data.get("skills", data.get("signatures", {}))
+    if isinstance(sk, dict):
+        tampered = [n for n, i in sk.items()
+                    if (i.get("hash") or i.get("sha256")) and i.get("path")
+                    and (ws / i["path"]).is_file()
+                    and sha256_file(ws / i["path"]) != (i.get("hash") or i.get("sha256"))]
+        if tampered: findings.append({"src": "signet", "sev": SEV_CRIT,
+                                      "msg": f"Tampered signatures: {', '.join(tampered)}"})
+    findings.append({"src": "signet", "sev": SEV_LOW,
+                     "msg": f"Signet: {len(sk) if isinstance(sk, dict) else 0} skill(s)"})
     return findings
 
-
-def check_sentinel(workspace: Path) -> list[dict]:
-    """Check sentinel threat database for known threats."""
-    findings = []
-    data = read_json_safe(workspace / SENTINEL_THREATS)
+def check_sentinel(ws):
+    findings = []; data = read_json(ws / SENTINEL_THREATS)
     if data is None:
-        findings.append({
-            "source": "sentinel",
-            "severity": SEVERITY_LOW,
-            "detail": "No sentinel threat data found (.sentinel/threats.json missing)",
-        })
-        return findings
-
+        return [{"src": "sentinel", "sev": SEV_LOW, "msg": "No sentinel threat data found"}]
     threats = data.get("threats", data.get("findings", []))
     if isinstance(threats, list) and threats:
-        critical_threats = [t for t in threats if t.get("severity", "").upper() in ("CRITICAL", "HIGH")]
-        if critical_threats:
-            findings.append({
-                "source": "sentinel",
-                "severity": SEVERITY_HIGH,
-                "detail": f"Sentinel reports {len(critical_threats)} high/critical threat(s) in workspace",
-            })
-        findings.append({
-            "source": "sentinel",
-            "severity": SEVERITY_MEDIUM if threats else SEVERITY_LOW,
-            "detail": f"Sentinel threat DB present: {len(threats)} finding(s)",
-        })
+        ct = [t for t in threats if t.get("severity", "").upper() in ("CRITICAL", "HIGH")]
+        if ct: findings.append({"src": "sentinel", "sev": SEV_HIGH,
+                                "msg": f"Sentinel: {len(ct)} high/critical threat(s)"})
+        findings.append({"src": "sentinel", "sev": SEV_MED if threats else SEV_LOW,
+                         "msg": f"Sentinel: {len(threats)} finding(s)"})
     else:
-        findings.append({
-            "source": "sentinel",
-            "severity": SEVERITY_LOW,
-            "detail": "Sentinel threat DB present but empty",
-        })
+        findings.append({"src": "sentinel", "sev": SEV_LOW, "msg": "Sentinel DB empty"})
     return findings
 
+# --- Investigation engine ---
+def _check_modified_critical(files, hrs=24):
+    cutoff = now_utc() - timedelta(hours=hrs)
+    return [{"src": "investigate", "sev": SEV_HIGH,
+             "msg": f"Critical file modified: {e['rel']} ({dt_to_iso(e['dt'])})"}
+            for e in files if classify(e["rel"]) == "critical" and e["dt"] > cutoff]
 
-# ---------------------------------------------------------------------------
-# Investigation engine
-# ---------------------------------------------------------------------------
+def _check_modified_skills(files, hrs=24):
+    cutoff = now_utc() - timedelta(hours=hrs)
+    return [{"src": "investigate", "sev": SEV_MED,
+             "msg": f"Skill file modified: {e['rel']} ({dt_to_iso(e['dt'])})"}
+            for e in files if e["rel"].startswith("skills/") and e["dt"] > cutoff]
 
-def check_recently_modified_critical(files: list[dict], hours: int = 24) -> list[dict]:
-    """Find critical files modified within the given timeframe."""
-    findings = []
-    cutoff = now_utc() - timedelta(hours=hours)
-    for entry in files:
-        cat = classify_path(entry["rel_path"])
-        if cat == "critical" and entry["mtime_dt"] > cutoff:
-            findings.append({
-                "source": "investigate",
-                "severity": SEVERITY_HIGH,
-                "detail": f"Critical file recently modified: {entry['rel_path']} "
-                          f"(at {dt_to_iso(entry['mtime_dt'])})",
-            })
-    return findings
+def _check_off_hours(files, hrs=72):
+    cutoff, out = now_utc() - timedelta(hours=hrs), []
+    for e in files:
+        if e["dt"] < cutoff: continue
+        h = e["dt"].astimezone().hour
+        if (h < WORK_START or h >= WORK_END) and classify(e["rel"]) in ("critical", "skill", "config"):
+            out.append({"src": "investigate", "sev": SEV_MED,
+                        "msg": f"Off-hours modification ({h:02d}:xx): {e['rel']}"})
+    return out
 
+def _check_large(files, hrs=48):
+    cutoff = now_utc() - timedelta(hours=hrs)
+    return [{"src": "investigate", "sev": SEV_MED,
+             "msg": f"Large file ({e['size']/1048576:.1f} MB): {e['rel']}"}
+            for e in files if e["size"] > LARGE_THRESHOLD and e["dt"] > cutoff]
 
-def check_new_or_modified_skills(files: list[dict], hours: int = 24) -> list[dict]:
-    """Find skill files created or modified recently."""
-    findings = []
-    cutoff = now_utc() - timedelta(hours=hours)
-    for entry in files:
-        if entry["rel_path"].startswith("skills/") and entry["mtime_dt"] > cutoff:
-            findings.append({
-                "source": "investigate",
-                "severity": SEVERITY_MEDIUM,
-                "detail": f"Skill file recently modified: {entry['rel_path']} "
-                          f"(at {dt_to_iso(entry['mtime_dt'])})",
-            })
-    return findings
-
-
-def check_outside_work_hours(files: list[dict], start: int = DEFAULT_WORK_HOURS_START,
-                             end: int = DEFAULT_WORK_HOURS_END, hours: int = 72) -> list[dict]:
-    """Find files modified outside normal working hours."""
-    findings = []
-    cutoff = now_utc() - timedelta(hours=hours)
-    for entry in files:
-        if entry["mtime_dt"] < cutoff:
-            continue
-        local_hour = entry["mtime_dt"].astimezone().hour
-        if local_hour < start or local_hour >= end:
-            cat = classify_path(entry["rel_path"])
-            if cat in ("critical", "skill", "config"):
-                findings.append({
-                    "source": "investigate",
-                    "severity": SEVERITY_MEDIUM,
-                    "detail": f"File modified outside work hours ({local_hour:02d}:xx): "
-                              f"{entry['rel_path']}",
-                })
-    return findings
-
-
-def check_large_files(files: list[dict], hours: int = 48) -> list[dict]:
-    """Find large files that appeared recently."""
-    findings = []
-    cutoff = now_utc() - timedelta(hours=hours)
-    for entry in files:
-        if entry["size"] > LARGE_FILE_THRESHOLD and entry["mtime_dt"] > cutoff:
-            size_mb = entry["size"] / (1024 * 1024)
-            findings.append({
-                "source": "investigate",
-                "severity": SEVERITY_MEDIUM,
-                "detail": f"Large file appeared recently ({size_mb:.1f} MB): {entry['rel_path']}",
-            })
-    return findings
-
-
-def check_hidden_files(files: list[dict]) -> list[dict]:
-    """Find hidden files or directories (dot-prefixed) outside known dirs."""
-    findings = []
-    known_dot_dirs = {".integrity", ".ledger", ".signet", ".sentinel", ".triage",
-                      ".git", ".svn", ".hg", ".vscode", ".idea", ".claude"}
-    for entry in files:
-        parts = Path(entry["rel_path"]).parts
-        for part in parts:
-            if part.startswith(".") and part not in known_dot_dirs:
-                findings.append({
-                    "source": "investigate",
-                    "severity": SEVERITY_LOW,
-                    "detail": f"Hidden file/directory: {entry['rel_path']}",
-                })
+def _check_hidden(files):
+    known = {".integrity", ".ledger", ".signet", ".sentinel", ".triage",
+             ".git", ".svn", ".hg", ".vscode", ".idea", ".claude"}
+    out = []
+    for e in files:
+        for p in Path(e["rel"]).parts:
+            if p.startswith(".") and p not in known:
+                out.append({"src": "investigate", "sev": SEV_LOW, "msg": f"Hidden: {e['rel']}"})
                 break
-    return findings
+    return out
 
+def calc_severity(findings):
+    cc = sum(1 for f in findings if f["sev"] == SEV_CRIT)
+    hc = sum(1 for f in findings if f["sev"] == SEV_HIGH)
+    if cc > 0: return SEV_CRIT
+    if hc >= 3: return SEV_CRIT
+    if hc > 0: return SEV_HIGH
+    if len(findings) > 10: return SEV_HIGH
+    if len(findings) > 5: return SEV_MED
+    return SEV_LOW
 
-def calculate_severity(findings: list[dict]) -> str:
-    """Calculate overall incident severity from findings."""
-    if not findings:
-        return SEVERITY_LOW
+def run_investigation(ws):
+    files = collect_files(ws)
+    findings = (_check_modified_critical(files) + _check_modified_skills(files) +
+                _check_off_hours(files) + _check_large(files) + _check_hidden(files))
+    for f in check_warden(ws) + check_ledger(ws) + check_signet(ws) + check_sentinel(ws):
+        if f["sev"] != SEV_LOW: findings.append(f)
+    return findings, files, calc_severity(findings)
 
-    max_rank = 0
-    critical_count = 0
-    high_count = 0
-
-    for f in findings:
-        rank = SEVERITY_RANK.get(f.get("severity", SEVERITY_LOW), 0)
-        if rank > max_rank:
-            max_rank = rank
-        if f["severity"] == SEVERITY_CRITICAL:
-            critical_count += 1
-        elif f["severity"] == SEVERITY_HIGH:
-            high_count += 1
-
-    # Escalate based on volume of findings
-    if critical_count > 0:
-        return SEVERITY_CRITICAL
-    if high_count >= 3:
-        return SEVERITY_CRITICAL
-    if high_count > 0:
-        return SEVERITY_HIGH
-    if len(findings) > 10:
-        return SEVERITY_HIGH
-    if len(findings) > 5:
-        return SEVERITY_MEDIUM
-    return SEVERITY_LOW
-
-
-# ---------------------------------------------------------------------------
-# Commands
-# ---------------------------------------------------------------------------
-
-def cmd_investigate(workspace: Path):
-    """Full incident investigation."""
-    print("=" * 60)
-    print("INCIDENT INVESTIGATION REPORT")
-    print("=" * 60)
-    print(f"Workspace: {workspace}")
-    print(f"Timestamp: {now_iso()}")
-    print()
-
-    # Collect workspace state
+# --- Free commands ---
+def cmd_investigate(ws):
+    print("=" * 60); print("INCIDENT INVESTIGATION REPORT"); print("=" * 60)
+    print(f"Workspace: {ws}\nTimestamp: {now_iso()}\n")
     print("[1/5] Collecting workspace file inventory...")
-    files = collect_all_files(workspace)
-    print(f"      Found {len(files)} files")
-    print()
-
-    all_findings = []
-
-    # Check for signs of compromise
+    files = collect_files(ws)
+    print(f"      Found {len(files)} files\n")
+    findings = []
     print("[2/5] Checking for signs of compromise...")
-    all_findings.extend(check_recently_modified_critical(files))
-    all_findings.extend(check_new_or_modified_skills(files))
-    all_findings.extend(check_outside_work_hours(files))
-    all_findings.extend(check_large_files(files))
-    all_findings.extend(check_hidden_files(files))
-    local_count = len(all_findings)
-    print(f"      Local checks: {local_count} finding(s)")
-    print()
-
-    # Cross-reference with other OpenClaw tools
+    findings.extend(_check_modified_critical(files) + _check_modified_skills(files) +
+                    _check_off_hours(files) + _check_large(files) + _check_hidden(files))
+    print(f"      Local checks: {len(findings)} finding(s)\n")
     print("[3/5] Cross-referencing with OpenClaw security tools...")
-    warden_findings = check_warden(workspace)
-    ledger_findings = check_ledger(workspace)
-    signet_findings = check_signet(workspace)
-    sentinel_findings = check_sentinel(workspace)
-
-    # Only include non-LOW findings from cross-references in the main findings
-    for f in warden_findings + ledger_findings + signet_findings + sentinel_findings:
-        if f["severity"] != SEVERITY_LOW:
-            all_findings.append(f)
-
-    # Show cross-ref status
-    for source, flist in [("warden", warden_findings), ("ledger", ledger_findings),
-                          ("signet", signet_findings), ("sentinel", sentinel_findings)]:
-        status_items = [f for f in flist if f["severity"] == SEVERITY_LOW]
-        alert_items = [f for f in flist if f["severity"] != SEVERITY_LOW]
-        status_msg = status_items[0]["detail"] if status_items else "N/A"
-        print(f"      {source:10s}: {status_msg}")
-        if alert_items:
-            for a in alert_items:
-                print(f"                   [{a['severity']:8s}] {a['detail']}")
+    xref = {"warden": check_warden(ws), "ledger": check_ledger(ws),
+            "signet": check_signet(ws), "sentinel": check_sentinel(ws)}
+    for src, fl in xref.items():
+        for f in fl:
+            if f["sev"] != SEV_LOW: findings.append(f)
+        lo = [f for f in fl if f["sev"] == SEV_LOW]
+        hi = [f for f in fl if f["sev"] != SEV_LOW]
+        print(f"      {src:10s}: {lo[0]['msg'] if lo else 'N/A'}")
+        for a in hi: print(f"                   [{a['sev']:8s}] {a['msg']}")
     print()
-
-    # Build timeline summary
     print("[4/5] Building event timeline...")
-    recent_files = sorted(
-        [f for f in files if f["mtime_dt"] > now_utc() - timedelta(hours=24)],
-        key=lambda x: x["mtime"],
-        reverse=True,
-    )
-    print(f"      {len(recent_files)} files modified in last 24 hours")
-    if recent_files:
-        print(f"      Most recent: {recent_files[0]['rel_path']} "
-              f"({dt_to_iso(recent_files[0]['mtime_dt'])})")
-    print()
-
-    # Calculate severity
-    print("[5/5] Calculating incident severity...")
-    severity = calculate_severity(all_findings)
-    print()
-
-    # Final report
-    actionable = [f for f in all_findings if f["severity"] != SEVERITY_LOW]
-    print("-" * 60)
-    print(f"INCIDENT SEVERITY: {severity}")
-    print(f"TOTAL FINDINGS:    {len(all_findings)} ({len(actionable)} actionable)")
-    print("-" * 60)
-
+    recent = sorted([f for f in files if f["dt"] > now_utc() - timedelta(hours=24)],
+                    key=lambda x: x["mt"], reverse=True)
+    print(f"      {len(recent)} files modified in last 24 hours")
+    if recent: print(f"      Most recent: {recent[0]['rel']} ({dt_to_iso(recent[0]['dt'])})")
+    print(f"\n[5/5] Calculating incident severity...")
+    sev = calc_severity(findings)
+    actionable = [f for f in findings if f["sev"] != SEV_LOW]
+    print(f"\n{'-'*60}\nINCIDENT SEVERITY: {sev}")
+    print(f"TOTAL FINDINGS:    {len(findings)} ({len(actionable)} actionable)\n{'-'*60}")
     if actionable:
-        print()
-        print("ACTIONABLE FINDINGS:")
+        print("\nACTIONABLE FINDINGS:")
         for i, f in enumerate(actionable, 1):
-            print(f"  {i:2d}. [{f['severity']:8s}] [{f['source']:12s}] {f['detail']}")
-
-    if not actionable:
-        print()
-        print("No actionable findings. Workspace appears clean.")
-
-    print()
-    print("=" * 60)
-
-    if severity == SEVERITY_CRITICAL:
-        print("RECOMMENDATION: Immediate incident response required.")
-        print("  - Do NOT load workspace files into any agent until verified")
-        print("  - Run 'evidence' to preserve forensic data before remediation")
-        print("  - Run 'scope' to assess the blast radius")
-    elif severity == SEVERITY_HIGH:
-        print("RECOMMENDATION: Investigation warranted.")
-        print("  - Review all flagged files manually")
-        print("  - Run 'timeline' for a detailed event chronology")
-        print("  - Run 'scope' to check for credential exposure")
-    elif severity == SEVERITY_MEDIUM:
-        print("RECOMMENDATION: Review flagged items.")
-        print("  - Check modified files for legitimacy")
-        print("  - Run 'timeline' to understand the sequence of events")
+            print(f"  {i:2d}. [{f['sev']:8s}] [{f['src']:12s}] {f['msg']}")
     else:
-        print("RECOMMENDATION: No immediate action required.")
-        print("  - Consider running periodic checks")
-
+        print("\nNo actionable findings. Workspace appears clean.")
+    print(f"\n{'='*60}")
+    recs = {SEV_CRIT: "Immediate response required.\n  - Run 'contain' to auto-quarantine\n  - Run 'evidence' to preserve forensic data\n  - Run 'scope' to assess blast radius",
+            SEV_HIGH: "Investigation warranted.\n  - Review flagged files\n  - Run 'timeline' for event chronology\n  - Run 'contain' to quarantine suspicious skills",
+            SEV_MED: "Review flagged items.\n  - Check modified files for legitimacy\n  - Run 'timeline' to understand sequence",
+            SEV_LOW: "No immediate action required.\n  - Consider running 'harden' for posture review"}
+    print(f"RECOMMENDATION: {recs.get(sev, recs[SEV_LOW])}")
     print("=" * 60)
+    st = load_state(ws) or {}
+    st.update({"last_investigation": now_iso(), "last_severity": sev,
+               "last_finding_count": len(findings), "last_actionable_count": len(actionable)})
+    save_state(ws, st)
+    sys.exit(2 if sev == SEV_CRIT else 1 if sev in (SEV_HIGH, SEV_MED) else 0)
 
-    # Update triage state
-    state = load_state(workspace) or {}
-    state["last_investigation"] = now_iso()
-    state["last_severity"] = severity
-    state["last_finding_count"] = len(all_findings)
-    state["last_actionable_count"] = len(actionable)
-    save_state(workspace, state)
-
-    # Exit code based on severity
-    if severity == SEVERITY_CRITICAL:
-        sys.exit(2)
-    elif severity in (SEVERITY_HIGH, SEVERITY_MEDIUM):
-        sys.exit(1)
-    else:
-        sys.exit(0)
-
-
-def cmd_timeline(workspace: Path, hours: int = 24):
-    """Build a chronological timeline of file modifications."""
-    print("=" * 60)
-    print("EVENT TIMELINE")
-    print("=" * 60)
-    print(f"Workspace: {workspace}")
-    print(f"Window:    Last {hours} hours")
-    print(f"Generated: {now_iso()}")
-    print()
-
-    files = collect_all_files(workspace)
+def cmd_timeline(ws, hours=24):
+    print("=" * 60); print("EVENT TIMELINE"); print("=" * 60)
+    print(f"Workspace: {ws}\nWindow:    Last {hours} hours\nGenerated: {now_iso()}\n")
+    files = collect_files(ws)
     cutoff = now_utc() - timedelta(hours=hours)
-    recent = [f for f in files if f["mtime_dt"] > cutoff]
-    recent.sort(key=lambda x: x["mtime"])
-
-    if not recent:
-        print("No file modifications found in the specified timeframe.")
-        print("=" * 60)
-        sys.exit(0)
-
-    # Group by hour
-    hourly_groups: dict[str, list[dict]] = {}
-    for entry in recent:
-        hour_key = entry["mtime_dt"].strftime("%Y-%m-%d %H:00 UTC")
-        hourly_groups.setdefault(hour_key, []).append(entry)
-
-    # Detect bursts (many files in a short window)
-    bursts = []
-    for i, entry in enumerate(recent):
-        window_end = entry["mtime_dt"] + timedelta(minutes=BURST_WINDOW_MINUTES)
-        burst_files = [e for e in recent[i:] if e["mtime_dt"] <= window_end]
-        if len(burst_files) >= BURST_THRESHOLD_FILES:
-            bursts.append({
-                "start": entry["mtime_dt"],
-                "end": burst_files[-1]["mtime_dt"],
-                "count": len(burst_files),
-                "files": [e["rel_path"] for e in burst_files],
-            })
-
-    # De-duplicate overlapping bursts
-    unique_bursts = []
-    seen_starts = set()
-    for b in bursts:
-        key = b["start"].isoformat()
-        if key not in seen_starts:
-            unique_bursts.append(b)
-            seen_starts.add(key)
-
-    # Print timeline
-    print(f"TOTAL: {len(recent)} files modified in {len(hourly_groups)} hour(s)")
-    print()
-
-    for hour_key in sorted(hourly_groups.keys()):
-        group = hourly_groups[hour_key]
-        print(f"--- {hour_key} ({len(group)} files) ---")
-        for entry in group:
-            cat = classify_path(entry["rel_path"])
-            ts = entry["mtime_dt"].strftime("%H:%M:%S")
-            marker = ""
-            if cat == "critical":
-                marker = " [CRITICAL FILE]"
-            elif cat == "skill":
-                marker = " [SKILL]"
-            print(f"  {ts}  {entry['rel_path']}{marker}")
+    recent = sorted([f for f in files if f["dt"] > cutoff], key=lambda x: x["mt"])
+    if not recent: print("No file modifications found."); print("=" * 60); sys.exit(0)
+    groups = {}
+    for e in recent: groups.setdefault(e["dt"].strftime("%Y-%m-%d %H:00 UTC"), []).append(e)
+    bursts, seen = [], set()
+    for i, e in enumerate(recent):
+        wend = e["dt"] + timedelta(minutes=BURST_MINS)
+        bf = [x for x in recent[i:] if x["dt"] <= wend]
+        if len(bf) >= BURST_FILES:
+            k = e["dt"].isoformat()
+            if k not in seen: bursts.append({"s": e["dt"], "e": bf[-1]["dt"], "n": len(bf),
+                                             "f": [x["rel"] for x in bf]}); seen.add(k)
+    print(f"TOTAL: {len(recent)} files in {len(groups)} hour(s)\n")
+    for hk in sorted(groups):
+        g = groups[hk]; print(f"--- {hk} ({len(g)} files) ---")
+        for e in g:
+            c = classify(e["rel"]); ts = e["dt"].strftime("%H:%M:%S")
+            m = " [CRITICAL FILE]" if c == "critical" else " [SKILL]" if c == "skill" else ""
+            print(f"  {ts}  {e['rel']}{m}")
         print()
-
-    # Cross-reference with ledger if available
-    ledger_entries = read_jsonl_safe(workspace / LEDGER_CHAIN)
-    if ledger_entries:
-        recent_ledger = []
-        for le in ledger_entries:
-            ts_str = le.get("timestamp") or le.get("time") or le.get("created")
-            if ts_str:
+    le = read_jsonl(ws / LEDGER_CHAIN)
+    if le:
+        rl = []
+        for entry in le:
+            tss = entry.get("timestamp") or entry.get("time") or entry.get("created")
+            if tss:
                 try:
-                    le_dt = datetime.fromisoformat(ts_str.replace("Z", "+00:00"))
-                    if le_dt > cutoff:
-                        recent_ledger.append({"time": le_dt, "entry": le})
-                except (ValueError, TypeError):
-                    pass
-
-        if recent_ledger:
-            print("-" * 40)
-            print("LEDGER ENTRIES IN TIMEFRAME:")
-            print("-" * 40)
-            for item in sorted(recent_ledger, key=lambda x: x["time"]):
-                action = item["entry"].get("action", item["entry"].get("type", "unknown"))
-                detail = item["entry"].get("detail", item["entry"].get("message", ""))
-                print(f"  {dt_to_iso(item['time'])}  {action}: {detail}")
+                    d = datetime.fromisoformat(tss.replace("Z", "+00:00"))
+                    if d > cutoff: rl.append({"t": d, "e": entry})
+                except (ValueError, TypeError): pass
+        if rl:
+            print(f"{'-'*40}\nLEDGER ENTRIES:\n{'-'*40}")
+            for it in sorted(rl, key=lambda x: x["t"]):
+                a = it["e"].get("action", it["e"].get("type", "unknown"))
+                d = it["e"].get("detail", it["e"].get("message", ""))
+                print(f"  {dt_to_iso(it['t'])}  {a}: {d}")
             print()
-
-    # Burst analysis
-    if unique_bursts:
-        print("-" * 40)
-        print("SUSPICIOUS BURST ACTIVITY:")
-        print("-" * 40)
-        for b in unique_bursts:
-            print(f"  {dt_to_iso(b['start'])} - {dt_to_iso(b['end'])}")
-            print(f"  {b['count']} files modified in {BURST_WINDOW_MINUTES} min window:")
-            # Show affected directories
-            dirs_affected = set()
-            for fp in b["files"]:
-                parts = Path(fp).parts
-                if len(parts) > 1:
-                    dirs_affected.add(parts[0])
-                else:
-                    dirs_affected.add("(root)")
-            print(f"  Directories: {', '.join(sorted(dirs_affected))}")
-            print()
-
-    # Summary
-    print("=" * 60)
-    dirs_summary = {}
-    for entry in recent:
-        parts = Path(entry["rel_path"]).parts
-        top = parts[0] if len(parts) > 1 else "(root)"
-        dirs_summary[top] = dirs_summary.get(top, 0) + 1
-
-    print("DIRECTORY BREAKDOWN:")
-    for d, count in sorted(dirs_summary.items(), key=lambda x: -x[1]):
-        print(f"  {d:30s} {count} file(s)")
+    if bursts:
+        print(f"{'-'*40}\nSUSPICIOUS BURST ACTIVITY:\n{'-'*40}")
+        for b in bursts:
+            dirs = set(Path(f).parts[0] if len(Path(f).parts) > 1 else "(root)" for f in b["f"])
+            print(f"  {dt_to_iso(b['s'])} - {dt_to_iso(b['e'])}")
+            print(f"  {b['n']} files in {BURST_MINS}min | Dirs: {', '.join(sorted(dirs))}\n")
+    print("=" * 60 + "\nDIRECTORY BREAKDOWN:")
+    ds = {}
+    for e in recent:
+        t = Path(e["rel"]).parts[0] if len(Path(e["rel"]).parts) > 1 else "(root)"
+        ds[t] = ds.get(t, 0) + 1
+    for d, c in sorted(ds.items(), key=lambda x: -x[1]): print(f"  {d:30s} {c} file(s)")
     print("=" * 60)
 
-
-def cmd_scope(workspace: Path):
-    """Assess the blast radius of a potential compromise."""
-    print("=" * 60)
-    print("BLAST RADIUS ASSESSMENT")
-    print("=" * 60)
-    print(f"Workspace: {workspace}")
-    print(f"Timestamp: {now_iso()}")
-    print()
-
-    files = collect_all_files(workspace)
-
-    # Categorize all files by risk
-    categories: dict[str, list[dict]] = {
-        "critical": [],
-        "memory": [],
-        "skill": [],
-        "config": [],
-        "dotfile": [],
-        "other": [],
-    }
-    for entry in files:
-        cat = classify_path(entry["rel_path"])
-        categories[cat].append(entry)
-
-    print("FILE INVENTORY BY RISK CATEGORY:")
-    print("-" * 40)
-    for cat in ["critical", "memory", "skill", "config", "dotfile", "other"]:
-        items = categories[cat]
-        print(f"  {cat:12s}: {len(items)} file(s)")
-    print()
-
-    # Check for credential exposure in recently modified files
-    print("CREDENTIAL EXPOSURE CHECK:")
-    print("-" * 40)
-    credential_hits = []
-    recent_cutoff = now_utc() - timedelta(hours=48)
-    for entry in files:
-        if entry["mtime_dt"] < recent_cutoff:
-            continue
-        text = read_file_text(entry["abs_path"])
-        if text is None:
-            continue
-        for pattern in CREDENTIAL_PATTERNS:
-            matches = re.findall(pattern, text)
-            if matches:
-                credential_hits.append({
-                    "file": entry["rel_path"],
-                    "pattern_count": len(matches),
-                    "category": classify_path(entry["rel_path"]),
-                })
-                break
-
-    if credential_hits:
-        print(f"  WARNING: Potential credential patterns found in {len(credential_hits)} file(s):")
-        for hit in credential_hits:
-            print(f"    - {hit['file']} ({hit['pattern_count']} pattern(s), category: {hit['category']})")
-    else:
-        print("  No credential patterns detected in recently modified files.")
-    print()
-
-    # Check for exfiltration URLs
-    print("DATA EXFILTRATION CHECK:")
-    print("-" * 40)
+def cmd_scope(ws):
+    print("=" * 60); print("BLAST RADIUS ASSESSMENT"); print("=" * 60)
+    print(f"Workspace: {ws}\nTimestamp: {now_iso()}\n")
+    files = collect_files(ws)
+    cats = {c: [] for c in ("critical", "memory", "skill", "config", "dotfile", "other")}
+    for e in files: cats[classify(e["rel"])].append(e)
+    print("FILE INVENTORY BY RISK CATEGORY:\n" + "-" * 40)
+    for c in cats: print(f"  {c:12s}: {len(cats[c])} file(s)")
+    rc = now_utc() - timedelta(hours=48)
+    # Credential check
+    cred_hits = []
+    for e in files:
+        if e["dt"] < rc: continue
+        txt = read_text(e["abs"])
+        if txt:
+            for pat in CREDENTIAL_PATTERNS:
+                m = re.findall(pat, txt)
+                if m: cred_hits.append({"f": e["rel"], "n": len(m)}); break
+    print(f"\nCREDENTIAL EXPOSURE CHECK:\n{'-'*40}")
+    if cred_hits:
+        print(f"  WARNING: Patterns in {len(cred_hits)} file(s):")
+        for h in cred_hits: print(f"    - {h['f']} ({h['n']} match(es))")
+    else: print("  No credential patterns detected.")
+    # Exfil check
     exfil_hits = []
-    for entry in files:
-        if entry["mtime_dt"] < recent_cutoff:
-            continue
-        text = read_file_text(entry["abs_path"])
-        if text is None:
-            continue
-        for pattern in EXFIL_URL_PATTERNS:
-            matches = re.findall(pattern, text)
-            if matches:
-                exfil_hits.append({
-                    "file": entry["rel_path"],
-                    "urls": matches[:5],  # limit to first 5
-                })
-                break
-
+    for e in files:
+        if e["dt"] < rc: continue
+        txt = read_text(e["abs"])
+        if txt:
+            for pat in EXFIL_PATTERNS:
+                m = re.findall(pat, txt)
+                if m: exfil_hits.append({"f": e["rel"], "u": m[:5]}); break
+    print(f"\nDATA EXFILTRATION CHECK:\n{'-'*40}")
     if exfil_hits:
-        print(f"  WARNING: Suspicious outbound URLs found in {len(exfil_hits)} file(s):")
-        for hit in exfil_hits:
-            print(f"    - {hit['file']}:")
-            for url in hit["urls"]:
-                print(f"        {url[:80]}")
-    else:
-        print("  No suspicious outbound URLs detected in recently modified files.")
-    print()
+        print(f"  WARNING: Suspicious URLs in {len(exfil_hits)} file(s):")
+        for h in exfil_hits:
+            print(f"    - {h['f']}:")
+            for u in h["u"]: print(f"        {u[:80]}")
+    else: print("  No suspicious URLs detected.")
+    # Scope
+    rm = [f for f in files if f["dt"] > rc]
+    md, ms, mc = set(), set(), False
+    for e in rm:
+        p = Path(e["rel"]).parts
+        if len(p) > 1: md.add(p[0])
+        c = classify(e["rel"])
+        if c == "critical": mc = True
+        if c == "skill" and len(p) >= 2: ms.add(p[1])
+    if mc or len(ms) > 2 or cred_hits or exfil_hits: scope, sd = "SYSTEMIC", "Workspace-level compromise"
+    elif ms: scope, sd = "SPREADING", f"{len(ms)} skill(s) affected"
+    elif rm: scope, sd = "CONTAINED", "Changes limited"
+    else: scope, sd = "NONE", "No recent modifications"
+    print(f"\nSCOPE ESTIMATION:\n{'-'*40}")
+    print(f"  Scope: {scope} | {sd}")
+    print(f"  Modified: {len(rm)} files (48h) | Dirs: {len(md)} | Skills: {len(ms)}")
+    if ms: print(f"  Skill names: {', '.join(sorted(ms))}")
+    print(f"  Critical: {'YES' if mc else 'No'} | Credentials: {'YES' if cred_hits else 'No'} | Exfil: {'YES' if exfil_hits else 'No'}")
+    print(f"\n{'='*60}")
+    recs = {"SYSTEMIC": "Run 'contain' then 'remediate'", "SPREADING": "Run 'contain' on affected skills",
+            "CONTAINED": "Review modifications", "NONE": "No action required"}
+    print(f"RECOMMENDATION: {recs[scope]}\n{'='*60}")
 
-    # Estimate scope
-    print("SCOPE ESTIMATION:")
-    print("-" * 40)
-    recently_modified = [f for f in files if f["mtime_dt"] > recent_cutoff]
-    modified_dirs = set()
-    modified_skills = set()
-    modified_critical = False
-
-    for entry in recently_modified:
-        parts = Path(entry["rel_path"]).parts
-        if len(parts) > 1:
-            modified_dirs.add(parts[0])
-        cat = classify_path(entry["rel_path"])
-        if cat == "critical":
-            modified_critical = True
-        if cat == "skill" and len(parts) >= 2:
-            modified_skills.add(parts[1])
-
-    if modified_critical or len(modified_skills) > 2 or credential_hits or exfil_hits:
-        scope = "SYSTEMIC"
-        scope_detail = "Workspace-level compromise suspected"
-    elif len(modified_skills) > 0:
-        scope = "SPREADING"
-        scope_detail = f"Multiple skills affected ({len(modified_skills)})"
-    elif recently_modified:
-        scope = "CONTAINED"
-        scope_detail = "Changes limited to a small area"
-    else:
-        scope = "NONE"
-        scope_detail = "No recent modifications detected"
-
-    print(f"  Scope level:      {scope}")
-    print(f"  Assessment:       {scope_detail}")
-    print(f"  Files modified:   {len(recently_modified)} (last 48h)")
-    print(f"  Directories:      {len(modified_dirs)}")
-    print(f"  Skills affected:  {len(modified_skills)}")
-    if modified_skills:
-        print(f"  Skill names:      {', '.join(sorted(modified_skills))}")
-    print(f"  Critical files:   {'YES' if modified_critical else 'No'}")
-    print(f"  Credential risk:  {'YES' if credential_hits else 'No'}")
-    print(f"  Exfil indicators: {'YES' if exfil_hits else 'No'}")
-    print()
-
-    print("=" * 60)
-    if scope == "SYSTEMIC":
-        print("RECOMMENDATION: Full workspace remediation needed.")
-        print("  - Preserve evidence with 'evidence' command first")
-        print("  - Consider restoring workspace from a known-good backup")
-        print("  - Rotate any exposed credentials immediately")
-    elif scope == "SPREADING":
-        print("RECOMMENDATION: Targeted skill remediation needed.")
-        print("  - Investigate affected skills individually")
-        print("  - Check if modified skills have been invoked since compromise")
-    elif scope == "CONTAINED":
-        print("RECOMMENDATION: Review modifications and update baselines.")
-    else:
-        print("RECOMMENDATION: No immediate action required.")
-    print("=" * 60)
-
-
-def cmd_evidence(workspace: Path, output_dir: str | None = None):
-    """Collect and preserve forensic evidence."""
-    timestamp = now_utc().strftime("%Y%m%d-%H%M%S")
-
-    if output_dir:
-        evidence_dir = Path(output_dir)
-    else:
-        evidence_dir = triage_dir(workspace) / f"evidence-{timestamp}"
-
-    evidence_dir.mkdir(parents=True, exist_ok=True)
-
-    print("=" * 60)
-    print("EVIDENCE COLLECTION")
-    print("=" * 60)
-    print(f"Workspace: {workspace}")
-    print(f"Output:    {evidence_dir}")
-    print(f"Timestamp: {now_iso()}")
-    print()
-
-    # 1. Snapshot workspace file state
-    print("[1/3] Snapshotting workspace file state...")
-    files = collect_all_files(workspace)
-    snapshot = []
-    for entry in files:
-        compute_hash(entry)
-        snapshot.append({
-            "path": entry["rel_path"],
-            "size": entry["size"],
-            "mtime": dt_to_iso(entry["mtime_dt"]),
-            "sha256": entry["hash"],
-            "category": classify_path(entry["rel_path"]),
-        })
-
-    snapshot_path = evidence_dir / "workspace-snapshot.json"
-    with open(snapshot_path, "w", encoding="utf-8") as f:
-        json.dump({
-            "collected_at": now_iso(),
-            "workspace": str(workspace),
-            "file_count": len(snapshot),
-            "files": snapshot,
-        }, f, indent=2)
-    print(f"      Saved {len(snapshot)} file records to workspace-snapshot.json")
-
-    # 2. Copy security tool data
+def cmd_evidence(ws, output_dir=None):
+    ts = now_utc().strftime("%Y%m%d-%H%M%S")
+    ed = Path(output_dir) if output_dir else _triage_dir(ws) / f"evidence-{ts}"
+    ed.mkdir(parents=True, exist_ok=True)
+    print("=" * 60); print("EVIDENCE COLLECTION"); print("=" * 60)
+    print(f"Workspace: {ws}\nOutput:    {ed}\nTimestamp: {now_iso()}\n")
+    print("[1/3] Snapshotting workspace...")
+    files = collect_files(ws)
+    snap = [{"path": e["rel"], "size": e["size"], "mtime": dt_to_iso(e["dt"]),
+             "sha256": get_hash(e), "category": classify(e["rel"])} for e in files]
+    with open(ed / "workspace-snapshot.json", "w", encoding="utf-8") as f:
+        json.dump({"collected_at": now_iso(), "workspace": str(ws),
+                   "file_count": len(snap), "files": snap}, f, indent=2)
+    print(f"      {len(snap)} file records saved")
     print("[2/3] Collecting security tool data...")
-    security_dirs = {
-        ".integrity": "warden",
-        ".ledger": "ledger",
-        ".signet": "signet",
-        ".sentinel": "sentinel",
-    }
-    for src_name, tool_name in security_dirs.items():
-        src_path = workspace / src_name
-        if src_path.is_dir():
-            dst_path = evidence_dir / f"tool-{tool_name}"
+    sdirs = {".integrity": "warden", ".ledger": "ledger", ".signet": "signet", ".sentinel": "sentinel"}
+    for sn, tn in sdirs.items():
+        sp = ws / sn
+        if sp.is_dir():
+            try: shutil.copytree(sp, ed / f"tool-{tn}", dirs_exist_ok=True); print(f"      {tn}: copied")
+            except (OSError, shutil.Error) as e: print(f"      {tn}: failed ({e})")
+        else: print(f"      {tn}: not present")
+    es = load_state(ws)
+    if es:
+        with open(ed / "triage-state.json", "w", encoding="utf-8") as f: json.dump(es, f, indent=2)
+    print("[3/3] Generating summary...")
+    cc = {}
+    for s in snap: cc[s["category"]] = cc.get(s["category"], 0) + 1
+    lines = [f"EVIDENCE SUMMARY\nCollected: {now_iso()}\nFiles: {len(snap)}\n"]
+    for c, n in sorted(cc.items()): lines.append(f"  {c}: {n}")
+    with open(ed / "summary.txt", "w", encoding="utf-8") as f: f.write("\n".join(lines) + "\n")
+    print(f"\n{'='*60}\nEvidence preserved in: {ed}\n{'='*60}")
+    st = load_state(ws) or {}
+    st.update({"last_evidence_collection": now_iso(), "last_evidence_dir": str(ed)})
+    save_state(ws, st)
+
+def cmd_status(ws):
+    st = load_state(ws)
+    print("=" * 60); print("TRIAGE STATUS"); print("=" * 60)
+    print(f"Workspace: {ws}\n")
+    if not st:
+        print("STATUS: NO DATA\n  Run 'investigate' for initial assessment."); print("=" * 60); sys.exit(0)
+    print(f"Last investigation:   {st.get('last_investigation', 'never')}")
+    print(f"Threat level:         {st.get('last_severity', 'UNKNOWN')}")
+    print(f"Findings:             {st.get('last_finding_count', 0)} ({st.get('last_actionable_count', 0)} actionable)")
+    print(f"Evidence collected:   {'Yes' if st.get('last_evidence_collection') else 'No'}")
+    if st.get("last_evidence_collection"):
+        print(f"  Time: {st['last_evidence_collection']}")
+        if st.get("last_evidence_dir"):
+            print(f"  Path: {st['last_evidence_dir']} ({'exists' if Path(st['last_evidence_dir']).is_dir() else 'MISSING'})")
+    print(f"Last containment:     {st.get('last_containment', 'never')}")
+    print(f"Last remediation:     {st.get('last_remediation', 'never')}")
+    print(f"Last protect sweep:   {st.get('lasttect', 'never')}")
+    print("=" * 60)
+
+# --- Pro commands ---
+def cmd_contain(ws):
+    print("=" * 60); print("AUTOMATED CONTAINMENT"); print("=" * 60)
+    print(f"Workspace: {ws}\nTimestamp: {now_iso()}\n")
+    print("[1/4] Running threat assessment...")
+    findings, files, sev = run_investigation(ws)
+    actionable = [f for f in findings if f["sev"] != SEV_LOW]
+    print(f"      Severity: {sev} | {len(actionable)} actionable\n")
+    if not actionable:
+        print("No threats found.\n" + "=" * 60); sys.exit(0)
+    qp = ws / QUARANTINE_DIR; qp.mkdir(parents=True, exist_ok=True)
+    actions = []
+    # Quarantine skills
+    print("[2/4] Quarantining flagged skills...")
+    flagged = set()
+    for f in findings:
+        m = f.get("msg", "")
+        if "Tampered signatures" in m:
+            for n in m.split(": ", 1)[-1].split(", "): flagged.add(n.strip())
+        if "Skill file modified" in m:
+            parts = Path(m.split(": ")[1].split(" ")[0]).parts if ": " in m else ()
+            if len(parts) >= 2 and parts[0] == "skills": flagged.add(parts[1])
+    qc = 0
+    for sn in sorted(flagged):
+        sd = ws / "skills" / sn
+        if sd.is_dir():
+            dest = qp / sn
             try:
-                shutil.copytree(src_path, dst_path, dirs_exist_ok=True)
-                file_count = sum(1 for _ in dst_path.rglob("*") if _.is_file())
-                print(f"      {tool_name:10s}: Copied ({file_count} file(s))")
-            except (OSError, shutil.Error) as e:
-                print(f"      {tool_name:10s}: Copy failed ({e})")
-        else:
-            print(f"      {tool_name:10s}: Not present")
-
-    # Also copy triage state if it exists
-    existing_state = load_state(workspace)
-    if existing_state:
-        state_dst = evidence_dir / "triage-state.json"
-        with open(state_dst, "w", encoding="utf-8") as f:
-            json.dump(existing_state, f, indent=2)
-        print(f"      {'triage':10s}: Previous state preserved")
-
-    # 3. Generate summary report
-    print("[3/3] Generating evidence summary...")
-    summary_lines = [
-        "EVIDENCE COLLECTION SUMMARY",
-        "=" * 40,
-        f"Collected:  {now_iso()}",
-        f"Workspace:  {workspace}",
-        f"Files:      {len(snapshot)}",
-        "",
-        "Security tool data collected:",
-    ]
-    for src_name, tool_name in security_dirs.items():
-        present = (workspace / src_name).is_dir()
-        summary_lines.append(f"  {tool_name}: {'Yes' if present else 'No'}")
-
-    summary_lines.append("")
-    summary_lines.append("File category breakdown:")
-    cat_counts: dict[str, int] = {}
-    for s in snapshot:
-        cat_counts[s["category"]] = cat_counts.get(s["category"], 0) + 1
-    for cat, count in sorted(cat_counts.items()):
-        summary_lines.append(f"  {cat}: {count}")
-
-    summary_path = evidence_dir / "summary.txt"
-    with open(summary_path, "w", encoding="utf-8") as f:
-        f.write("\n".join(summary_lines) + "\n")
-
-    print()
+                if dest.exists(): shutil.rmtree(dest)
+                shutil.copytree(sd, dest); shutil.rmtree(sd); qc += 1
+                actions.append(f"Quarantined: {sn}"); print(f"      Quarantined: {sn}")
+            except (OSError, shutil.Error) as e: print(f"      Failed: {sn}: {e}")
+    if not flagged: print("      No skills flagged.")
+    # Lock critical files
+    print("\n[3/4] Locking critical files...")
+    bp = ws / BACKUPS_DIR; bp.mkdir(parents=True, exist_ok=True)
+    lc = 0
+    for e in files:
+        if classify(e["rel"]) == "critical":
+            bk = bp / e["rel"].replace("/", "_")
+            try:
+                shutil.copy2(e["abs"], bk)
+                bk.chmod(stat.S_IRUSR | stat.S_IRGRP | stat.S_IROTH); lc += 1
+                actions.append(f"Locked: {e['rel']}"); print(f"      Locked: {e['rel']}")
+            except (OSError, PermissionError) as e2: print(f"      Failed: {e2}")
+    # Disable suspicious hooks
+    print("\n[4/4] Checking hooks...")
+    hd = 0
+    for sp in [ws / ".claude" / "settings.json", ws / ".claude" / "settings.local.json"]:
+        if not sp.is_file(): continue
+        data = read_json(sp)
+        if not data or not isinstance(data, dict): continue
+        hooks = data.get("hooks", {})
+        suspicious = any(any(kw in (h.get("command", "") if isinstance(h, dict) else "").lower()
+                             for kw in ["curl ", "wget ", "nc ", "ncat "])
+                         for hl in hooks.values() if isinstance(hl, list) for h in hl)
+        if suspicious:
+            try:
+                sp.rename(sp.parent / (sp.name + ".disabled")); hd += 1
+                actions.append(f"Disabled hooks: {sp.name}"); print(f"      Disabled: {sp.name}")
+            except OSError as e: print(f"      Failed: {e}")
+    if hd == 0: print("      No suspicious hooks.")
+    print(f"\n{'='*60}\nCONTAINMENT SUMMARY\n{'-'*60}")
+    print(f"  Quarantined: {qc} | Locked: {lc} | Hooks disabled: {hd}")
+    if actions:
+        print("\nACTIONS:")
+        for i, a in enumerate(actions, 1): print(f"  {i}. {a}")
     print("=" * 60)
-    print(f"Evidence preserved in: {evidence_dir}")
-    print(f"Files collected:")
-    print(f"  - workspace-snapshot.json  (file hashes and metadata)")
-    for src_name, tool_name in security_dirs.items():
-        if (workspace / src_name).is_dir():
-            print(f"  - tool-{tool_name}/           ({tool_name} data)")
-    print(f"  - summary.txt              (collection summary)")
-    print()
-    print("IMPORTANT: This evidence should be preserved before any")
-    print("remediation actions that may alter or destroy forensic data.")
+    st = load_state(ws) or {}
+    st.update({"last_containment": now_iso(), "containment_actions": actions,
+               "quarantined_skills": sorted(flagged)})
+    save_state(ws, st)
+    sys.exit(1 if qc > 0 or hd > 0 else 0)
+
+def cmd_remediate(ws):
+    print("=" * 60); print("GUIDED REMEDIATION"); print("=" * 60)
+    print(f"Workspace: {ws}\nTimestamp: {now_iso()}\n")
+    actions = []
+    # Restore critical files
+    print("[1/4] Restoring critical files...")
+    sd = ws / WARDEN_SNAPSHOTS; wd = read_json(ws / WARDEN_MANIFEST); rc = 0
+    if sd.is_dir() and wd:
+        for rel, info in wd.get("files", {}).items():
+            if info.get("category") != "critical": continue
+            ap = ws / rel
+            for sf in [sd / rel.replace("/", "_"), sd / rel]:
+                if sf.is_file() and sha256_file(ap) != info.get("sha256", "") if ap.is_file() else True:
+                    try: shutil.copy2(sf, ap); rc += 1; actions.append(f"Restored: {rel}"); print(f"      Restored: {rel}")
+                    except OSError as e: print(f"      Failed: {e}")
+                    break
+    bp = ws / BACKUPS_DIR
+    if bp.is_dir():
+        for bf in bp.iterdir():
+            if bf.is_file() and bf.name in CRITICAL_FILES:
+                dest = ws / bf.name
+                if not dest.is_file():
+                    try: shutil.copy2(bf, dest); rc += 1; actions.append(f"Restored (backup): {bf.name}")
+                    except OSError: pass
+    print(f"      {rc} file(s) restored\n")
+    # Re-sign with signet
+    print("[2/4] Re-signing skills...")
+    for cand in [ws / "skills" / d / "scripts" / "signet.py"
+                 for d in ("openclaw-signet", "openclaw-signet")]:
+        if cand.is_file():
+            try:
+                r = subprocess.run([sys.executable, str(cand), "sign", "--workspace", str(ws)],
+                                   capture_output=True, text=True, timeout=30)
+                if r.returncode == 0: actions.append("Re-signed skills"); print("      Done.")
+                else: print(f"      Code {r.returncode}")
+            except (subprocess.TimeoutExpired, FileNotFoundError, OSError) as e: print(f"      Failed: {e}")
+            break
+    else: print("      Signet not installed.")
+    # Record in ledger
+    print("\n[3/4] Recording in ledger...")
+    for cand in [ws / "skills" / d / "scripts" / "ledger.py"
+                 for d in ("openclaw-ledger", "openclaw-ledger")]:
+        if cand.is_file():
+            try:
+                r = subprocess.run([sys.executable, str(cand), "record", "--action", "remediation",
+                                    "--detail", f"Triage Pro remediation {now_iso()}", "--workspace", str(ws)],
+                                   capture_output=True, text=True, timeout=30)
+                if r.returncode == 0: actions.append("Recorded in ledger"); print("      Done.")
+                else: print(f"      Code {r.returncode}")
+            except (subprocess.TimeoutExpired, FileNotFoundError, OSError) as e: print(f"      Failed: {e}")
+            break
+    else: print("      Ledger not installed.")
+    # Rebuild baselines
+    print("\n[4/4] Rebuilding baselines...")
+    for cand in [ws / "skills" / d / "scripts" / "warden.py"
+                 for d in ("openclaw-warden", "openclaw-warden")]:
+        if cand.is_file():
+            try:
+                r = subprocess.run([sys.executable, str(cand), "scan", "--workspace", str(ws)],
+                                   capture_output=True, text=True, timeout=60)
+                if r.returncode == 0: actions.append("Rebuilt baselines"); print("      Done.")
+                else: print(f"      Code {r.returncode}")
+            except (subprocess.TimeoutExpired, FileNotFoundError, OSError) as e: print(f"      Failed: {e}")
+            break
+    else: print("      Warden not installed.")
+    print(f"\n{'='*60}\nREMEDIATION SUMMARY: {len(actions)} action(s)")
+    if actions:
+        for i, a in enumerate(actions, 1): print(f"  {i}. {a}")
+    print("=" * 60)
+    st = load_state(ws) or {}
+    st.update({"last_remediation": now_iso(), "remediation_actions": actions})
+    save_state(ws, st)
+
+def cmd_export(ws, fmt="text", output_file=None):
+    print("=" * 60); print("INCIDENT REPORT EXPORT"); print("=" * 60)
+    print(f"Format: {fmt}\nTimestamp: {now_iso()}\n")
+    findings, files, sev = run_investigation(ws)
+    cutoff = now_utc() - timedelta(hours=24)
+    recent = sorted([f for f in files if f["dt"] > cutoff], key=lambda x: x["mt"])
+    tl = [{"time": dt_to_iso(e["dt"]), "file": e["rel"], "category": classify(e["rel"]),
+           "size": e["size"]} for e in recent]
+    ms = set()
+    rc = now_utc() - timedelta(hours=48)
+    for e in files:
+        if e["dt"] > rc and e["rel"].startswith("skills/"):
+            p = Path(e["rel"]).parts
+            if len(p) >= 2: ms.add(p[1])
+    st = load_state(ws) or {}
+    report = {
+        "report_type": "incident_response", "generated_at": now_iso(),
+        "generator": "openclaw-triage", "workspace": str(ws), "severity": sev,
+        "summary": {"total_findings": len(findings),
+                    "actionable": len([f for f in findings if f["sev"] != SEV_LOW]),
+                    "total_files": len(files), "modified_24h": len(recent),
+                    "skills_affected": sorted(ms)},
+        "findings": [{"severity": f["sev"], "source": f["src"], "detail": f["msg"]} for f in findings],
+        "timeline": tl,
+        "actions": {"investigation": st.get("last_investigation"),
+                    "containment": st.get("last_containment"),
+                    "containment_actions": st.get("containment_actions", []),
+                    "quarantined": st.get("quarantined_skills", []),
+                    "remediation": st.get("last_remediation"),
+                    "remediation_actions": st.get("remediation_actions", [])},
+        "tools": {t: (ws / i["path"]).exists() for t, i in SECURITY_TOOLS.items()},
+    }
+    if fmt == "json":
+        content = json.dumps(report, indent=2)
+    else:
+        L = ["=" * 60, "INCIDENT RESPONSE REPORT", "=" * 60,
+             f"Generated:  {report['generated_at']}", f"Workspace:  {report['workspace']}",
+             f"Severity:   {report['severity']}", "",
+             f"{'- '*30}", "SUMMARY", f"{'- '*30}"]
+        s = report["summary"]
+        L += [f"  Findings: {s['total_findings']} ({s['actionable']} actionable)",
+              f"  Files: {s['total_files']} | Modified 24h: {s['modified_24h']}",
+              f"  Skills affected: {', '.join(s['skills_affected']) or 'none'}", "",
+              f"{'- '*30}", "FINDINGS", f"{'- '*30}"]
+        for i, f in enumerate(report["findings"], 1):
+            L.append(f"  {i:2d}. [{f['severity']:8s}] [{f['source']:12s}] {f['detail']}")
+        L += ["", f"{'- '*30}", "TIMELINE (24h)", f"{'- '*30}"]
+        for t in report["timeline"]:
+            m = f" [{t['category'].upper()}]" if t["category"] in ("critical", "skill") else ""
+            L.append(f"  {t['time']}  {t['file']}{m}")
+        L += ["", f"{'- '*30}", "ACTIONS", f"{'- '*30}"]
+        a = report["actions"]
+        L += [f"  Investigation: {a['investigation'] or 'never'}",
+              f"  Containment:   {a['containment'] or 'never'}"]
+        for act in a.get("containment_actions", []): L.append(f"    - {act}")
+        L.append(f"  Remediation:   {a['remediation'] or 'never'}")
+        for act in a.get("remediation_actions", []): L.append(f"    - {act}")
+        L += ["", f"{'- '*30}", "TOOLS", f"{'- '*30}"]
+        for tn, p in report["tools"].items():
+            L.append(f"  {tn:12s}: {'installed' if p else 'NOT INSTALLED'}")
+        L += ["", "=" * 60]
+        content = "\n".join(L) + "\n"
+    if output_file:
+        op = Path(output_file); op.parent.mkdir(parents=True, exist_ok=True)
+        with open(op, "w", encoding="utf-8") as f: f.write(content)
+        print(f"Report exported to: {op}")
+    else:
+        print(); print(content)
     print("=" * 60)
 
-    # Update triage state
-    state = load_state(workspace) or {}
-    state["last_evidence_collection"] = now_iso()
-    state["last_evidence_dir"] = str(evidence_dir)
-    save_state(workspace, state)
+def cmd_harden(ws):
+    print("=" * 60); print("POST-INCIDENT HARDENING"); print("=" * 60)
+    print(f"Workspace: {ws}\nTimestamp: {now_iso()}\n")
+    recs, n = [], 0
+    print("[1/3] Security tools...\n" + "-" * 40)
+    for tn, ti in SECURITY_TOOLS.items():
+        present = (ws / ti["path"]).exists()
+        print(f"  {tn:12s}: {'INSTALLED' if present else 'MISSING':12s} ({ti['desc']})")
+        if not present:
+            n += 1; recs.append({"n": n, "p": "HIGH" if tn in ("warden", "ledger") else "MEDIUM",
+                                 "act": f"Install openclaw-{tn}", "why": ti["desc"]})
+    # Baseline & signet coverage
+    print(f"\n[2/3] Policies...\n{'-'*40}")
+    wd = read_json(ws / WARDEN_MANIFEST)
+    if wd:
+        bt = wd.get("created") or wd.get("timestamp")
+        print(f"  Warden baseline: Present{f' ({bt})' if bt else ' (age unknown)'}")
+        if not bt: n += 1; recs.append({"n": n, "p": "MEDIUM", "act": "Refresh warden baseline",
+                                        "why": "No creation timestamp"})
+    else:
+        print("  Warden baseline: MISSING"); n += 1
+        recs.append({"n": n, "p": "HIGH", "act": "Create warden baseline", "why": "No integrity baseline"})
+    sd = read_json(ws / SIGNET_MANIFEST)
+    skd = ws / "skills"; total_sk = 0
+    if skd.is_dir():
+        total_sk = sum(1 for c in skd.iterdir() if c.is_dir() and (c / SKILL_MARKER).is_file())
+    signed = len(sd.get("skills", sd.get("signatures", {}))) if sd and isinstance(sd, dict) else 0
+    print(f"  Skills: {total_sk} total, {signed} signed")
+    if total_sk > signed:
+        n += 1; recs.append({"n": n, "p": "HIGH", "act": f"Sign {total_sk - signed} unsigned skill(s)",
+                             "why": "Unsigned skills can't be verified"})
+    cs = ws / ".claude" / "settings.json"
+    if cs.is_file():
+        cd = read_json(cs)
+        hk = cd.get("hooks", {}) if cd and isinstance(cd, dict) else {}
+        print(f"  Claude hooks: {len(hk)} event(s)")
+    else: print("  Claude hooks: NOT CONFIGURED")
+    print(f"\n[3/3] Recommended hooks...\n{'-'*40}")
+    for h in RECOMMENDED_HOOKS:
+        n += 1; recs.append({"n": n, "p": "MEDIUM", "act": f"Add {h['event']} -> {h['tool']}",
+                             "why": h["desc"]})
+        print(f"  {h['event']:16s} -> {h['tool']:10s}: {h['desc']}")
+    n += 1; recs.append({"n": n, "p": "LOW", "act": "Schedule periodic triage checks",
+                         "why": "Use 'protect' at session start"})
+    n += 1; recs.append({"n": n, "p": "LOW", "act": "Enable auto evidence collection",
+                         "why": "Auto-collect on HIGH/CRITICAL findings"})
+    print(f"\n{'='*60}\nACTIONABLE RECOMMENDATIONS\n{'='*60}\n")
+    for r in sorted(recs, key=lambda x: {"HIGH": 0, "MEDIUM": 1, "LOW": 2}[x["p"]]):
+        print(f"  [{r['p']:6s}] {r['act']}\n          {r['why']}\n")
+    print(f"Total: {len(recs)} recommendations\n{'='*60}")
 
+def cmd_playbook(ws, scenario=None):
+    PB = {
+        "skill-compromise": {
+            "title": "Skill Compromise Response",
+            "desc": "When a malicious or tampered skill is discovered.",
+            "steps": [("Isolate", "contain", "Quarantine affected skills to prevent execution."),
+                      ("Preserve evidence", "evidence", "Snapshot workspace before remediation."),
+                      ("Assess blast radius", "scope", "Check credential exposure and skill spread."),
+                      ("Remediate", "remediate", "Restore files, re-sign, re-record, rebuild baselines."),
+                      ("Harden", "harden", "Review posture and prevent recurrence."),
+                      ("Export report", "export --format text", "Generate incident report for records.")]},
+        "injection-attack": {
+            "title": "Prompt Injection Attack Response",
+            "desc": "When prompt injection is detected in workspace files.",
+            "steps": [("Investigate scope", "investigate", "Identify all files with injection payloads."),
+                      ("Contain", "contain", "Lock critical files and quarantine modified skills."),
+                      ("Check persistence", "scope", "Look for hooks, memory files, and skill modifications."),
+                      ("Restore clean state", "remediate", "Restore from pre-injection snapshots."),
+                      ("Export evidence", "export --format json", "Document the attack for analysis.")]},
+        "credential-leak": {
+            "title": "Credential Leak Response",
+            "desc": "When secrets or credentials are found exposed.",
+            "steps": [("Assess exposure", "scope", "Identify all files with credential patterns."),
+                      ("Preserve evidence", "evidence", "Document what was exposed and when."),
+                      ("Rotate credentials", None, "IMMEDIATELY rotate all exposed credentials:\n"
+                       "    - API keys: regenerate in provider dashboard\n"
+                       "    - GitHub tokens: revoke and reissue\n"
+                       "    - AWS keys: deactivate in IAM\n    - Passwords: change immediately"),
+                      ("Check exfiltration", "scope", "Verify credentials were not sent externally."),
+                      ("Clean files", "remediate", "Remove credentials and restore from snapshots."),
+                      ("Harden", "harden", "Add pre-commit checks and sentinel scanning.")]},
+        "chain-break": {
+            "title": "Ledger Chain Break Response",
+            "desc": "When the ledger audit chain has been broken or tampered with.",
+            "steps": [("Investigate", "investigate", "Determine extent of chain damage."),
+                      ("Build timeline", "timeline --hours 72", "Find events around the break."),
+                      ("Preserve evidence", "evidence", "Collect the broken chain as forensic data."),
+                      ("Remediate", "remediate", "Re-record and start a new chain segment."),
+                      ("Verify", "investigate", "Confirm resolution and check for new issues.")]},
+    }
+    if scenario is None:
+        print("=" * 60); print("INCIDENT RESPONSE PLAYBOOKS"); print("=" * 60)
+        print("\nAvailable:\n")
+        for k, v in PB.items(): print(f"  {k:22s}  {v['desc']}")
+        print(f"\nUsage: triage.py playbook --scenario <type>\n{'='*60}"); sys.exit(0)
+    if scenario not in PB:
+        print(f"ERROR: Unknown '{scenario}'", file=sys.stderr)
+        print(f"Available: {', '.join(PB.keys())}", file=sys.stderr); sys.exit(1)
+    pb = PB[scenario]
+    print("=" * 60); print(f"PLAYBOOK: {pb['title']}"); print("=" * 60)
+    print(f"Workspace: {ws}\nTimestamp: {now_iso()}\n{pb['desc']}\n")
+    for i, (name, cmd, detail) in enumerate(pb["steps"], 1):
+        print(f"STEP {i}: {name}\n{'-'*40}\n  {detail}")
+        if cmd: print(f"  Command: python3 triage.py {cmd}")
+        print()
+    print(f"{'='*60}\nPlaybook: {scenario} | Steps: {len(pb['steps'])}")
+    print(f"Auto-execute containment: triage.py protect\n{'='*60}")
 
-def cmd_status(workspace: Path):
-    """Quick summary of triage state."""
-    state = load_state(workspace)
-
-    print("=" * 60)
-    print("TRIAGE STATUS")
-    print("=" * 60)
-    print(f"Workspace: {workspace}")
-    print()
-
-    if state is None:
-        print("STATUS: NO DATA")
-        print("  No triage investigations have been run yet.")
-        print("  Run 'investigate' to perform initial assessment.")
-        print("=" * 60)
+def cmdtect(ws):
+    print("=" * 60); print("AUTOMATED FULLTECTION SWEEP"); print("=" * 60)
+    print(f"Workspace: {ws}\nTimestamp: {now_iso()}\n")
+    # Phase 1: Investigate
+    print("[1/4] Investigating...\n" + "-" * 40)
+    findings, files, sev = run_investigation(ws)
+    actionable = [f for f in findings if f["sev"] != SEV_LOW]
+    print(f"  Severity: {sev} | {len(actionable)} actionable\n")
+    st = load_state(ws) or {}
+    st.update({"last_investigation": now_iso(), "last_severity": sev,
+               "last_finding_count": len(findings), "last_actionable_count": len(actionable)})
+    save_state(ws, st)
+    if sev == SEV_LOW and not actionable:
+        print(f"Workspace clean.\n\n{'='*60}\nFULLTECTION SWEEP: CLEAN\n{'='*60}")
+        st.update({"lasttect": now_iso(), "lasttect_result": "CLEAN"}); save_state(ws, st)
         sys.exit(0)
+    # Phase 2: Contain
+    print("[2/4] Containing...\n" + "-" * 40)
+    ca = []
+    if sev in (SEV_CRIT, SEV_HIGH):
+        qp = ws / QUARANTINE_DIR; qp.mkdir(parents=True, exist_ok=True)
+        bp = ws / BACKUPS_DIR; bp.mkdir(parents=True, exist_ok=True)
+        flagged = set()
+        for f in findings:
+            if "Tampered signatures" in f.get("msg", ""):
+                for n in f["msg"].split(": ", 1)[-1].split(", "): flagged.add(n.strip())
+        for sn in sorted(flagged):
+            sd = ws / "skills" / sn
+            if sd.is_dir():
+                dest = qp / sn
+                try:
+                    if dest.exists(): shutil.rmtree(dest)
+                    shutil.copytree(sd, dest); shutil.rmtree(sd)
+                    ca.append(f"Quarantined: {sn}"); print(f"  Quarantined: {sn}")
+                except (OSError, shutil.Error) as e: print(f"  Failed: {sn}: {e}")
+        for e in files:
+            if classify(e["rel"]) == "critical":
+                try:
+                    bk = bp / e["rel"].replace("/", "_")
+                    shutil.copy2(e["abs"], bk)
+                    bk.chmod(stat.S_IRUSR | stat.S_IRGRP | stat.S_IROTH)
+                    ca.append(f"Locked: {e['rel']}")
+                except (OSError, PermissionError): pass
+        print(f"  {len(ca)} action(s)\n")
+    else: print("  Below HIGH; skipping auto-containment.\n")
+    # Phase 3: Evidence
+    print("[3/4] Collecting evidence...\n" + "-" * 40)
+    ts = now_utc().strftime("%Y%m%d-%H%M%S")
+    ed = _triage_dir(ws) / f"evidence-{ts}"; ed.mkdir(parents=True, exist_ok=True)
+    snap = [{"path": e["rel"], "size": e["size"], "mtime": dt_to_iso(e["dt"]),
+             "sha256": get_hash(e), "category": classify(e["rel"])} for e in files]
+    with open(ed / "workspace-snapshot.json", "w", encoding="utf-8") as f:
+        json.dump({"collected_at": now_iso(), "workspace": str(ws),
+                   "file_count": len(snap), "files": snap}, f, indent=2)
+    for sn, tn in {".integrity": "warden", ".ledger": "ledger",
+                   ".signet": "signet", ".sentinel": "sentinel"}.items():
+        sp = ws / sn
+        if sp.is_dir():
+            try: shutil.copytree(sp, ed / f"tool-{tn}", dirs_exist_ok=True)
+            except (OSError, shutil.Error): pass
+    print(f"  Saved to: {ed}\n")
+    # Phase 4: Report
+    print("[4/4] Generating report...\n" + "-" * 40)
+    rp = ed / "incident-report.txt"
+    lines = [f"FULLTECTION SWEEP REPORT\nGenerated: {now_iso()}\nSeverity: {sev}",
+             f"Findings: {len(findings)} ({len(actionable)} actionable)\n"]
+    if actionable:
+        lines.append("FINDINGS:")
+        for i, f in enumerate(actionable, 1):
+            lines.append(f"  {i}. [{f['sev']}] [{f['src']}] {f['msg']}")
+    if ca: lines.append("\nCONTAINMENT:"); lines.extend(f"  - {a}" for a in ca)
+    with open(rp, "w", encoding="utf-8") as f: f.write("\n".join(lines) + "\n")
+    print(f"  Report: {rp}\n")
+    print(f"{'='*60}\nFULLTECTION SWEEP COMPLETE\n{'-'*60}")
+    print(f"  Severity: {sev} | Findings: {len(findings)} | Actions: {len(ca)}")
+    print(f"  Evidence: {ed}\n{'='*60}")
+    st = load_state(ws) or {}
+    st.update({"lasttect": now_iso(), "lasttect_result": sev,
+               "last_evidence_collection": now_iso(), "last_evidence_dir": str(ed)})
+    if ca: st.update({"last_containment": now_iso(), "containment_actions": ca})
+    save_state(ws, st)
+    sys.exit(2 if sev == SEV_CRIT else 1 if sev in (SEV_HIGH, SEV_MED) else 0)
 
-    last_inv = state.get("last_investigation", "never")
-    severity = state.get("last_severity", "UNKNOWN")
-    findings = state.get("last_finding_count", 0)
-    actionable = state.get("last_actionable_count", 0)
-    evidence_time = state.get("last_evidence_collection")
-    evidence_dir = state.get("last_evidence_dir")
-
-    print(f"Last investigation:   {last_inv}")
-    print(f"Threat level:         {severity}")
-    print(f"Total findings:       {findings} ({actionable} actionable)")
-    print(f"Evidence collected:   {'Yes' if evidence_time else 'No'}")
-    if evidence_time:
-        print(f"  Collection time:    {evidence_time}")
-        if evidence_dir:
-            exists = Path(evidence_dir).is_dir()
-            print(f"  Evidence path:      {evidence_dir} ({'exists' if exists else 'MISSING'})")
-    print("=" * 60)
-
-
-# ---------------------------------------------------------------------------
-# Argument parsing
-# ---------------------------------------------------------------------------
-
-def build_parser() -> argparse.ArgumentParser:
-    parser = argparse.ArgumentParser(
-        prog="triage.py",
-        description="OpenClaw Triage — Incident Response & Forensics",
-    )
-    sub = parser.add_subparsers(dest="command")
-
-    # investigate
-    p_inv = sub.add_parser("investigate", help="Full incident investigation")
-    p_inv.add_argument("--workspace", type=str, default=None)
-
-    # timeline
-    p_tl = sub.add_parser("timeline", help="Build chronological event timeline")
-    p_tl.add_argument("--hours", type=int, default=24, help="Hours to look back (default: 24)")
-    p_tl.add_argument("--workspace", type=str, default=None)
-
-    # scope
-    p_sc = sub.add_parser("scope", help="Assess blast radius of compromise")
-    p_sc.add_argument("--workspace", type=str, default=None)
-
-    # evidence
-    p_ev = sub.add_parser("evidence", help="Collect forensic evidence")
-    p_ev.add_argument("--output", type=str, default=None, help="Output directory")
-    p_ev.add_argument("--workspace", type=str, default=None)
-
-    # status
-    p_st = sub.add_parser("status", help="Quick triage status summary")
-    p_st.add_argument("--workspace", type=str, default=None)
-
-    # Pro command stubs
-    for cmd_name in ("contain", "remediate", "export", "harden", "playbook"):
-        p_pro = sub.add_parser(cmd_name, help=f"[PRO] {cmd_name.title()} (requires openclaw-triage-pro)")
-        p_pro.add_argument("--workspace", type=str, default=None)
-
-    return parser
-
-
-# ---------------------------------------------------------------------------
-# Main
-# ---------------------------------------------------------------------------
+# --- Argument parsing ---
+def build_parser():
+    p = argparse.ArgumentParser(prog="triage.py",
+                                description="OpenClaw Triage— Full Incident Response Suite")
+    p.add_argument("--workspace", type=str, default=None,
+                   help="Workspace path (auto-detected if omitted)")
+    sub = p.add_subparsers(dest="command")
+    for name, hlp in [("investigate", "Full incident investigation"),
+                      ("timeline", "Chronological event timeline"),
+                      ("scope", "Blast radius assessment"),
+                      ("evidence", "Collect forensic evidence"),
+                      ("status", "Quick triage status")]:
+        sp = sub.add_parser(name, help=hlp)
+        sp.add_argument("--workspace", type=str, default=None)
+        if name == "timeline": sp.add_argument("--hours", type=int, default=24)
+        if name == "evidence": sp.add_argument("--output", type=str, default=None)
+    for name, hlp in [("contain", "Automated containment"),
+                      ("remediate", "Guided remediation"),
+                      ("export", "Export incident report"),
+                      ("harden", "Hardening recommendations"),
+                      ("playbook", "Response playbooks"),
+                      ("protect", "Full automated sweep")]:
+        sp = sub.add_parser(name, help=hlp)
+        sp.add_argument("--workspace", type=str, default=None)
+        if name == "export":
+            sp.add_argument("--format", type=str, choices=["json", "text"], default="text")
+            sp.add_argument("--output", type=str, default=None)
+        if name == "playbook":
+            sp.add_argument("--scenario", type=str, default=None,
+                            choices=["skill-compromise", "injection-attack",
+                                     "credential-leak", "chain-break"])
+    return p
 
 def main():
     parser = build_parser()
     args = parser.parse_args()
-
-    if args.command is None:
-        parser.print_help()
-        sys.exit(0)
-
-    # Pro command stubs
-    pro_commands = {"contain", "remediate", "export", "harden", "playbook"}
-    if args.command in pro_commands:
-        print(f"'{args.command}' is a Pro feature.")
-        print("Upgrade to openclaw-triage-pro for:")
-        print("  - Automated containment (quarantine affected skills)")
-        print("  - Remediation playbooks")
-        print("  - Evidence chain-of-custody and export")
-        print("  - Post-incident hardening recommendations")
-        print("  - Integration with all OpenClaw security tools")
-        sys.exit(1)
-
-    workspace = resolve_workspace(args)
-
-    if args.command == "investigate":
-        cmd_investigate(workspace)
-    elif args.command == "timeline":
-        cmd_timeline(workspace, hours=args.hours)
-    elif args.command == "scope":
-        cmd_scope(workspace)
-    elif args.command == "evidence":
-        cmd_evidence(workspace, output_dir=args.output)
-    elif args.command == "status":
-        cmd_status(workspace)
-    else:
-        parser.print_help()
-        sys.exit(1)
-
+    if args.command is None: parser.print_help(); sys.exit(0)
+    ws = resolve_workspace(args)
+    dispatch = {
+        "investigate": lambda: cmd_investigate(ws),
+        "timeline": lambda: cmd_timeline(ws, hours=args.hours),
+        "scope": lambda: cmd_scope(ws),
+        "evidence": lambda: cmd_evidence(ws, output_dir=args.output),
+        "status": lambda: cmd_status(ws),
+        "contain": lambda: cmd_contain(ws),
+        "remediate": lambda: cmd_remediate(ws),
+        "export": lambda: cmd_export(ws, fmt=args.format, output_file=args.output),
+        "harden": lambda: cmd_harden(ws),
+        "playbook": lambda: cmd_playbook(ws, scenario=args.scenario),
+        "protect": lambda: cmdtect(ws),
+    }
+    handler = dispatch.get(args.command)
+    if handler: handler()
+    else: parser.print_help(); sys.exit(1)
 
 if __name__ == "__main__":
     main()

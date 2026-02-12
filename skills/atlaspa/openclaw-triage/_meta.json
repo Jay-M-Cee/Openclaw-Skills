@@ -3,11 +3,16 @@
   "slug": "openclaw-triage",
   "displayName": "Openclaw Triage",
   "latest": {
-    "version": "1.0.1",
-    "publishedAt": 1770313162481,
-    "commit": "https://github.com/clawdbot/skills/commit/f679fb80a579839c1144fde95b7e5e78ffcb1593"
+    "version": "1.0.2",
+    "publishedAt": 1770892004851,
+    "commit": null
   },
   "history": [
+    {
+      "version": "1.0.1",
+      "publishedAt": 1770313162481,
+      "commit": "https://github.com/clawdbot/skills/commit/f679fb80a579839c1144fde95b7e5e78ffcb1593"
+    },
     {
       "version": "1.0.0",
       "publishedAt": 1770290890784,

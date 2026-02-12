@@ -1,6 +1,5 @@
 ---
 name: openclaw-triage
-description: "Incident response and forensics for agent workspaces. Investigate compromises, build timelines, assess blast radius, and collect evidence. Cross-references data from warden, ledger, signet, and sentinel for unified analysis. Free alert layer — upgrade to openclaw-triage-pro for automated containment, remediation playbooks, and evidence export."
 user-invocable: true
 metadata: {"openclaw":{"emoji":"🚨","requires":{"bins":["python3"]},"os":["darwin","linux","win32"]}}
 ---
@@ -11,7 +10,6 @@ Incident response and forensics for agent workspaces. When something goes wrong 
 
 This is the "detective" that pulls together evidence from all OpenClaw security tools into a unified incident report.
 
-**Need automated containment and remediation?** Upgrade to [openclaw-triage-pro](https://github.com/AtlasPA/openclaw-triage-pro) for quarantine, playbooks, evidence chain-of-custody, and post-incident hardening.
 
 ## Commands
 

@@ -4,7 +4,6 @@ Free incident response and forensics for [OpenClaw](https://github.com/openclaw/
 
 Investigates compromises, builds event timelines, assesses blast radius, and collects forensic evidence — pulling together data from warden, ledger, signet, and sentinel into unified incident reports.
 
-**Want automated countermeasures?** Upgrade to Pro — quarantine, playbooks, evidence chain-of-custody, and post-incident hardening. [Get Pro access](https://github.com/sponsors/AtlasPA).
 
 ## The Problem
 
@@ -113,9 +112,7 @@ Quick check of triage state: last investigation timestamp, current threat level,
 | 1 | Findings detected (investigation recommended) |
 | 2 | Critical findings (immediate action needed) |
 
-## Free vs Pro
 
-| Feature | Free | [Pro](https://github.com/sponsors/AtlasPA) |
 |---------|------|-----|
 | Full investigation | Yes | Yes |
 | Event timeline | Yes | Yes |
