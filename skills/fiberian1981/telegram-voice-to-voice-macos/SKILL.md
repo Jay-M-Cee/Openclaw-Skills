@@ -1,16 +1,23 @@
 ---
 name: telegram-voice-to-voice-macos
-description: "Telegram voice-to-voice workflow (macOS Apple Silicon only): handle incoming Telegram voice notes (.ogg), transcribe locally with yap (Speech.framework), generate a reply, and send back a Telegram voice note using local TTS (macOS say + ffmpeg). Also support /audio on and /audio off toggles with persistent per-user state. Use when you want voice-to-voice chat on Telegram without cloud transcription/TTS."
+description: "Telegram voice-to-voice for macOS Apple Silicon: transcribe inbound .ogg voice notes with yap (Speech.framework) and reply with Telegram voice notes via say+ffmpeg. Not compatible with Linux/Windows."
+metadata: {"openclaw":{"os":["darwin"],"requires":{"bins":["yap","ffmpeg","say","defaults"]}}}
 ---
 
-# Telegram voice-to-voice (macOS)
+# Telegram voice-to-voice (macOS Apple Silicon only)
+
+This is an **OpenClaw skill**.
 
 ## Requirements
 
-- macOS Tahoe on Apple Silicon (Macintosh Silicon).
+- macOS on Apple Silicon.
 - `yap` CLI available in `PATH` (Speech.framework transcription).
   - Project: https://github.com/finnvoor/yap (by finnvoor)
 - `ffmpeg` available in `PATH`.
+
+## Compatibility note (important)
+
+This skill is **macOS-only** (uses `say` + Speech.framework). The skill registry cannot enforce OS restrictions, so installing/running it on Linux/Windows will result in runtime failures.
 
 ## Persistent reply mode (voice vs text)
 
@@ -45,11 +52,16 @@ Recommended approach:
 
 ## Transcription
 
-Default locale: `en-US`.
+Default locale: **macOS system locale**.
+
+Optional env:
+
+- `YAP_LOCALE` — override the transcription locale (e.g. `it-IT`, `en-US`).
 
 Preferred:
 
-- `yap transcribe --locale "${YAP_LOCALE:-en-US}" <path.ogg>`
+- `yap transcribe --locale "${YAP_LOCALE:-<system>}" <path.ogg>`
+  - If `YAP_LOCALE` is not set, the helper script will use the macOS system locale (from `defaults read -g AppleLocale`).
 
 If transcription fails or is empty: ask the user to repeat or send text.
 
@@ -60,6 +72,8 @@ Helper script:
 ## Reply behavior
 
 ### Mode: voice (default)
+
+Voice default: **SYSTEM** (uses the current macOS system voice). You can override by passing a specific voice name to the helper script.
 
 1) Generate the reply text.
 2) Convert reply text to an OGG/Opus voice note using:

@@ -17,6 +17,17 @@ if ! command -v yap >/dev/null 2>&1; then
   exit 3
 fi
 
-YAP_LOCALE="${YAP_LOCALE:-en-US}"
+# Locale: if YAP_LOCALE is not set, fall back to macOS system locale.
+# Example AppleLocale values: it_IT, en_US@currency=EUR
+if [[ -z "${YAP_LOCALE:-}" ]]; then
+  SYS_LOCALE="$(defaults read -g AppleLocale 2>/dev/null || true)"
+  SYS_LOCALE="${SYS_LOCALE%%@*}"
+  SYS_LOCALE="${SYS_LOCALE//_/-}"
+  if [[ -n "${SYS_LOCALE}" ]]; then
+    YAP_LOCALE="${SYS_LOCALE}"
+  else
+    YAP_LOCALE="en-US"
+  fi
+fi
 
 yap transcribe --locale "${YAP_LOCALE}" "${OGG_PATH}"

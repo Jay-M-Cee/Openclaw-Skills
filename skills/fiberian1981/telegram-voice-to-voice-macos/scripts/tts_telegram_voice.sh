@@ -26,7 +26,8 @@ fi
 OUT_DIR="${HOME}/.openclaw/workspace/voice_out"
 mkdir -p "${OUT_DIR}"
 
-TS="$(python3 -c 'import time; print(int(time.time()*1000))')"
+# Use a timestamp + random suffix to avoid collisions without requiring python.
+TS="$(date +%s)-${RANDOM}"
 AIFF="${OUT_DIR}/tts-${TS}.aiff"
 OGG="${OUT_DIR}/tts-${TS}.ogg"
 
