@@ -1,11 +1,11 @@
 ---
 name: clawvault
-version: 1.11.6
+version: 1.11.9
 description: Agent memory system with checkpoint/recover, structured storage, observational memory, and session transcript repair. Integrates with OpenClaw's qmd memory backend for BM25+vector+reranker search. Use when: storing/searching memories, preventing context death, repairing broken sessions. Don't use when: general file I/O.
 author: Versatly
 repository: https://github.com/Versatly/clawvault
 homepage: https://clawvault.dev
-metadata: {"openclaw":{"emoji":"🐘","requires":{"bins":["clawvault"],"env":["CLAWVAULT_PATH","GEMINI_API_KEY"]},"install":[{"id":"node","kind":"node","package":"clawvault","bins":["clawvault"],"label":"Install ClawVault CLI (npm)"}]}}
+metadata: {"openclaw":{"emoji":"🐘","requires":{"bins":["clawvault"]},"env":{"CLAWVAULT_PATH":{"required":false,"description":"Vault directory path (auto-discovered if not set)"},"GEMINI_API_KEY":{"required":false,"description":"Only used by observe --compress for LLM compression. No other command uses this."}},"hooks":{"clawvault":{"events":["gateway:startup","command:new","session:start"],"capabilities":["executes clawvault CLI via child_process","reads vault state files","on gateway:startup — runs clawvault recover to detect context death and injects recovery alert","on command:new — runs clawvault checkpoint to save state, then runs clawvault observe --compress on session transcript (if GEMINI_API_KEY set)","on session:start — runs clawvault session-recap and clawvault context to inject relevant vault memories into new sessions"],"does_not":["modify session transcripts (only the repair-session CLI command does that, never the hook)","make network calls (the hook itself makes zero network calls; observe --compress may call Gemini API)","access files outside the vault directory and session transcript path"]}},"install":[{"id":"node","kind":"node","package":"clawvault","bins":["clawvault"],"label":"Install ClawVault CLI (npm)"}]}}
 ---
 
 # ClawVault 🐘
@@ -41,16 +41,17 @@ An elephant never forgets. Structured memory for OpenClaw agents.
 
 The bundled hook is **opt-in** — it does nothing until you run `openclaw hooks enable clawvault`.
 
-When enabled, it handles two events:
+When enabled, it handles three events:
 
 | Event | What it does | Network calls? |
 |---|---|---|
 | `gateway:startup` | Runs `clawvault recover --clear` to check for context death. If detected, injects a recovery alert into the session. | **None** |
 | `command:new` | Runs `clawvault checkpoint` to save state before reset. Then runs `clawvault observe --compress` on the session transcript if a transcript file exists. | **Only if `GEMINI_API_KEY` is set** (for observe compression). Without the key, observe uses rule-based fallback with zero network calls. |
+| `session:start` | Runs `clawvault session-recap` to fetch previous session context, and `clawvault context` to find relevant vault memories for the initial prompt. Injects both into the new session as context. | **None** |
 
 **What the hook does NOT do:**
 - Does NOT modify session transcripts (that's `repair-session`, a separate explicit CLI command)
-- Does NOT read or write files outside the vault directory
+- Does NOT read or write files outside the vault directory and session transcript path
 - Does NOT phone home, collect analytics, or contact any server except the optional Gemini API for observe
 
 The hook executes the `clawvault` CLI binary via `child_process.execSync`. The binary must be installed separately (`npm install -g clawvault`). The hook source is fully readable at `hooks/clawvault/handler.js`.

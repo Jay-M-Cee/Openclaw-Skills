@@ -3,11 +3,16 @@
   "slug": "clawvault",
   "displayName": "ClawVault",
   "latest": {
-    "version": "1.11.6",
-    "publishedAt": 1770918662060,
-    "commit": "https://github.com/openclaw/skills/commit/9a37c8f6161164eb0a13a5e476cf3388b8ad8578"
+    "version": "1.11.9",
+    "publishedAt": 1770922508119,
+    "commit": null
   },
   "history": [
+    {
+      "version": "1.11.6",
+      "publishedAt": 1770918662060,
+      "commit": "https://github.com/openclaw/skills/commit/9a37c8f6161164eb0a13a5e476cf3388b8ad8578"
+    },
     {
       "version": "1.11.4",
       "publishedAt": 1770918057929,
