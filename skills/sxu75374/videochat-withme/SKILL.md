@@ -1,12 +1,27 @@
 ---
 name: videochat-withme
 description: |
-  Real-time AI video chat that routes through your OpenClaw agent. Uses Groq Whisper for STT,
-  edge-tts for TTS, and OpenClaw chatCompletions API for conversation. Your agent sees your camera,
-  hears your voice, and responds with its own personality and memory. Use when user wants to video
-  chat with their AI agent, start a face-to-face conversation, or have a real-time voice call
-  with their OpenClaw assistant. Trigger phrases: "video chat", "voice call", "call me",
-  "视频一下", "语音", "打电话给我", "我要和你视频", "videochat-withme".
+  Real-time AI video chat that routes through your OpenClaw agent. Uses Groq Whisper (cloud STT),
+  edge-tts (cloud TTS via Microsoft), and OpenClaw chatCompletions API for conversation. Your agent
+  sees your camera, hears your voice, and responds with its own personality and memory.
+  Requires: GROQ_API_KEY for speech recognition. Reads ~/.openclaw/openclaw.json for gateway port and auth token.
+  Data flows: audio → Groq cloud (STT), TTS text → Microsoft cloud (edge-tts), camera frames (base64) + text
+  → OpenClaw gateway → your configured LLM provider (may be cloud — frames leave the machine if using a cloud LLM).
+  Installs a persistent launchd service (optional). Trigger phrases: "video chat", "voice call",
+  "call me", "视频一下", "语音", "打电话给我", "我要和你视频", "videochat-withme".
+metadata:
+  {
+    "openclaw":
+      {
+        "emoji": "🎥",
+        "requires":
+          {
+            "bins": ["python3", "ffmpeg"],
+            "env": ["GROQ_API_KEY"],
+            "config": ["gateway.http"],
+          },
+      },
+  }
 ---
 
 # videochat-withme

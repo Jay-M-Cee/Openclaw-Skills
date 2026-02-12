@@ -1684,12 +1684,13 @@ body.light-theme .avatar-ring.working .ring-border { border-color: rgba(14,116,1
   let audioUnlocked = false;
   function unlockAudio() {
     if (audioUnlocked) return;
+    audioUnlocked = true; // Set immediately to prevent re-entry
     const silentAudio = new Audio('data:audio/mp3;base64,SUQzBAAAAAAAI1RTU0UAAAAPAAADTGF2ZjU4Ljc2LjEwMAAAAAAAAAAAAAAA//tQAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAWGluZwAAAA8AAAACAAABhgC7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7u7//////////////////////////////////////////////////////////////////8AAAAATGF2YzU4LjEzAAAAAAAAAAAAAAAAJAAAAAAAAAAAAYYoRBqpAAAAAAD/+1DEAAAHAAGf9AAAIiWJs/80YAAAABBBP/k/JCCBnn5QEDBh+sCDv/KAgb/5OD4Pg+D7wfB8HwfB////8uD4Pg+D4nB8HwfB8Hw==');
     silentAudio.play().then(() => {
-      audioUnlocked = true;
       console.log('Audio unlocked');
     }).catch(() => {});
-    // Also unlock replyAudio
+    // Also unlock replyAudio with a silent play
+    const savedSrc = replyAudio.src;
     replyAudio.muted = true;
     replyAudio.play().then(() => { replyAudio.pause(); replyAudio.muted = false; replyAudio.currentTime = 0; }).catch(() => { replyAudio.muted = false; });
   }
@@ -1929,13 +1930,20 @@ body.light-theme .avatar-ring.working .ring-border { border-color: rgba(14,116,1
       setAvatarState('speaking');
       const typewriterPromise = typeSubtitle(data.text, 45);
       if (data.audio_url) {
+        // Clean up previous handlers to prevent repeated playback
+        replyAudio.onended = null;
+        replyAudio.onerror = null;
+        replyAudio.oncanplaythrough = null;
         replyAudio.src = data.audio_url;
         replyAudio.load();
         const audioPromise = new Promise(resolve => {
-          replyAudio.onended = () => { updateStatusLight('tts', 'green'); resolve(); };
-          replyAudio.onerror = (e) => { console.error('Audio error:', e); updateStatusLight('tts', 'red'); resolve(); };
+          let resolved = false;
+          const safeResolve = () => { if (!resolved) { resolved = true; resolve(); } };
+          replyAudio.onended = () => { replyAudio.oncanplaythrough = null; updateStatusLight('tts', 'green'); safeResolve(); };
+          replyAudio.onerror = (e) => { replyAudio.oncanplaythrough = null; console.error('Audio error:', e); updateStatusLight('tts', 'red'); safeResolve(); };
           replyAudio.oncanplaythrough = () => {
-            replyAudio.play().catch((e) => { console.error('Play failed:', e); updateStatusLight('tts', 'red'); resolve(); });
+            replyAudio.oncanplaythrough = null; // Remove after first fire to prevent re-triggers
+            replyAudio.play().catch((e) => { console.error('Play failed:', e); updateStatusLight('tts', 'red'); safeResolve(); });
           };
         });
         await Promise.all([audioPromise, typewriterPromise]);
