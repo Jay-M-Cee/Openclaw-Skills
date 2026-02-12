@@ -1,6 +1,5 @@
 ---
 name: openclaw-warden
-description: "Verify workspace file integrity and scan for prompt injection patterns in agent identity and memory files. Detects unauthorized modifications to SOUL.md, AGENTS.md, IDENTITY.md, memory files, and installed skills. Free detection layer — upgrade to openclaw-warden-pro for automated countermeasures."
 user-invocable: true
 metadata: {"openclaw":{"emoji":"🛡️","requires":{"bins":["python3"]},"os":["darwin","linux","win32"]}}
 ---
@@ -20,7 +19,6 @@ Your agent reads SOUL.md, AGENTS.md, IDENTITY.md, USER.md, and memory files on e
 
 This skill detects all of these.
 
-**Need automated response?** Upgrade to [openclaw-warden-pro](https://github.com/AtlasPA/openclaw-warden-pro) for snapshot restore, skill quarantine, git rollback, and automated protection sweeps.
 
 ## Commands
 

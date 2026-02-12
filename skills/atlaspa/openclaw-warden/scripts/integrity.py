@@ -1,8 +1,9 @@
 #!/usr/bin/env python3
 """
-OpenClaw Warden — Workspace Integrity Verification
+OpenClaw Warden— Workspace Integrity Verification
 Detects unauthorized modifications and prompt injection patterns
-in agent workspace files.
+in agent workspace files. Includes countermeasures: snapshot restore,
+skill quarantine, and git rollback.
 
 Usage:
     integrity.py baseline   [--workspace PATH]
@@ -11,9 +12,11 @@ Usage:
     integrity.py full       [--workspace PATH]
     integrity.py status     [--workspace PATH]
     integrity.py accept FILE [--workspace PATH]
-
-For countermeasures (auto-restore, quarantine, git rollback, protect),
-see openclaw-warden-pro.
+    integrity.py restore FILE [--workspace PATH]
+    integrity.py quarantine SKILL [--workspace PATH]
+    integrity.py unquarantine SKILL [--workspace PATH]
+    integrity.py rollback FILE [--workspace PATH]
+    integrity.py protect    [--workspace PATH]
 """
 
 import hashlib
@@ -38,6 +41,8 @@ if sys.stdout.encoding and sys.stdout.encoding.lower() not in ("utf-8", "utf8"):
 MANIFEST_VERSION = 1
 INTEGRITY_DIR = ".integrity"
 MANIFEST_FILE = "manifest.json"
+SNAPSHOTS_DIR = "snapshots"
+QUARANTINE_PREFIX = ".quarantined-"
 
 # ---------------------------------------------------------------------------
 # File categories and their default severity on unexpected change
@@ -73,7 +78,7 @@ INSTRUCTION_OVERRIDE_PATTERNS = [
     r"(?i)execute\s+the\s+following\s+(commands?|instructions?|code)\s*(:|without)",
 ]
 
-SYSTEM_PROMPT_MARKERS = [
+SYSTEM_FULLMPT_MARKERS = [
     r"<\s*system\s*>",
     r"\[\s*SYSTEM\s*\]",
     r"<<\s*SYS\s*>>",
@@ -129,6 +134,15 @@ SHELL_INJECTION_PATTERNS = [
 # blocks that aren't fenced code blocks — but those are already handled
 # by the code-block check. So we skip backtick patterns entirely to avoid
 # false positives on standard markdown inline code.
+
+# Security skills whose SKILL.md documents injection patterns they detect.
+# These must be exempt from injection scanning to avoid false positives.
+SECURITY_SCAN_EXEMPT = {
+    "openclaw-warden",
+    "openclaw-warden",
+    "openclaw-bastion",
+    "openclaw-bastion",
+}
 
 
 # ---------------------------------------------------------------------------
@@ -266,6 +280,24 @@ def read_file_text(path: Path) -> str | None:
 # Commands
 # ---------------------------------------------------------------------------
 
+def snapshot_dir(workspace: Path) -> Path:
+    return workspace / INTEGRITY_DIR / SNAPSHOTS_DIR
+
+
+def save_snapshot(workspace: Path, rel: str, abspath: Path):
+    """Store a copy of a file for later restoration."""
+    dest = snapshot_dir(workspace) / rel
+    dest.parent.mkdir(parents=True, exist_ok=True)
+    import shutil
+    shutil.copy2(abspath, dest)
+
+
+def get_snapshot_path(workspace: Path, rel: str) -> Path | None:
+    """Get the snapshot path for a file, or None if no snapshot exists."""
+    p = snapshot_dir(workspace) / rel
+    return p if p.is_file() else None
+
+
 def cmd_baseline(workspace: Path):
     """Establish or reset the integrity baseline."""
     files = collect_monitored_files(workspace)
@@ -282,6 +314,7 @@ def cmd_baseline(workspace: Path):
         "files": {},
     }
 
+    snapshotted = 0
     for rel, abspath in sorted(files.items()):
         cat, _ = classify_file(rel)
         stat = abspath.stat()
@@ -293,12 +326,17 @@ def cmd_baseline(workspace: Path):
             ).isoformat(),
             "category": cat,
         }
+        # Snapshot critical and config files for restoration
+        if cat in ("critical", "config", "skills"):
+            save_snapshot(workspace, rel, abspath)
+            snapshotted += 1
 
     save_manifest(workspace, manifest)
-    print(f"Baseline established: {len(manifest['files'])} files tracked")
+    print(f"Baseline established: {len(manifest['files'])} files tracked, {snapshotted} snapshotted")
     for rel in sorted(manifest["files"]):
         cat = manifest["files"][rel]["category"]
-        print(f"  [{cat:8s}] {rel}")
+        has_snap = "S" if get_snapshot_path(workspace, rel) else " "
+        print(f"  [{cat:8s}] [{has_snap}] {rel}")
 
 
 def cmd_verify(workspace: Path) -> list[dict]:
@@ -402,12 +440,12 @@ def scan_file_for_injections(path: Path, rel_path: str) -> list[dict]:
                 )
 
     # System prompt markers
-    for pattern in SYSTEM_PROMPT_MARKERS:
+    for pattern in SYSTEM_FULLMPT_MARKERS:
         for m in re.finditer(pattern, text):
             if not _is_inside_code_block(text, m.start()):
                 ln = line_number_at(m.start())
                 add_finding(
-                    "system_prompt_marker",
+                    "systemmpt_marker",
                     f"System prompt marker: '{m.group()[:60]}'",
                     ln,
                 )
@@ -485,9 +523,14 @@ def cmd_scan(workspace: Path) -> list[dict]:
     all_findings = []
 
     for rel, abspath in sorted(files.items()):
-        # Skip our own skill files — they document injection patterns
-        # and will always trigger false positives
-        if rel.startswith("skills/openclaw-warden"):
+        # Skip security skills that document injection patterns —
+        # their SKILL.md will always trigger false positives
+        if rel.startswith("skills/"):
+            parts = rel.split("/")
+            if len(parts) >= 2 and parts[1] in SECURITY_SCAN_EXEMPT:
+                continue
+        # Skip quarantined skills — already neutralized
+        if QUARANTINE_PREFIX in rel:
             continue
         findings = scan_file_for_injections(abspath, rel)
         all_findings.extend(findings)
@@ -574,6 +617,243 @@ def cmd_accept(workspace: Path, filepath: str):
     save_manifest(workspace, manifest)
     print(f"Accepted: {rel} (category: {cat})")
 
+
+# ---------------------------------------------------------------------------
+# Countermeasures
+# ---------------------------------------------------------------------------
+
+def cmd_restore(workspace: Path, filepath: str):
+    """Restore a file from its baseline snapshot."""
+    rel = filepath.replace("\\", "/")
+    snap = get_snapshot_path(workspace, rel)
+
+    if snap is None:
+        print(f"No snapshot found for: {rel}")
+        print("Only critical, config, and skill files are snapshotted.")
+        sys.exit(1)
+
+    dest = workspace / rel
+    import shutil
+    shutil.copy2(snap, dest)
+    print(f"Restored: {rel} (from baseline snapshot)")
+
+    # Verify the restore matched the baseline hash
+    manifest = load_manifest(workspace)
+    if manifest and rel in manifest.get("files", {}):
+        expected = manifest["files"][rel]["sha256"]
+        actual = sha256_file(dest)
+        if expected == actual:
+            print(f"  Verified: hash matches baseline")
+        else:
+            print(f"  WARNING: restored file hash does not match baseline")
+            print(f"    Expected: {expected[:16]}...")
+            print(f"    Got:      {actual[:16]}...")
+
+
+def cmd_rollback(workspace: Path, filepath: str):
+    """Rollback a file to its last git-committed state."""
+    import subprocess
+    rel = filepath.replace("\\", "/")
+    abspath = workspace / rel
+
+    # Check if workspace is a git repo
+    git_dir = workspace / ".git"
+    if not git_dir.exists():
+        print(f"Workspace is not a git repository. Cannot rollback.")
+        print(f"Use 'restore' to restore from snapshot instead.")
+        sys.exit(1)
+
+    # Check if file is tracked by git
+    result = subprocess.run(
+        ["git", "ls-files", rel],
+        cwd=str(workspace),
+        capture_output=True, text=True,
+    )
+    if not result.stdout.strip():
+        print(f"File is not tracked by git: {rel}")
+        sys.exit(1)
+
+    # Checkout from HEAD
+    result = subprocess.run(
+        ["git", "checkout", "HEAD", "--", rel],
+        cwd=str(workspace),
+        capture_output=True, text=True,
+    )
+    if result.returncode != 0:
+        print(f"Git rollback failed: {result.stderr.strip()}")
+        sys.exit(1)
+
+    print(f"Rolled back: {rel} (to last git commit)")
+    print(f"  Hash: {sha256_file(abspath)[:16]}...")
+
+
+def cmd_quarantine(workspace: Path, skill_name: str):
+    """Quarantine a skill by renaming its directory so OpenClaw won't load it."""
+    skills_dir = workspace / "skills"
+    skill_dir = skills_dir / skill_name
+
+    if not skill_dir.is_dir():
+        # Check if already quarantined
+        quarantined = skills_dir / (QUARANTINE_PREFIX + skill_name)
+        if quarantined.is_dir():
+            print(f"Skill '{skill_name}' is already quarantined.")
+            return
+        print(f"Skill not found: {skill_name}")
+        print(f"Available skills:")
+        if skills_dir.is_dir():
+            for d in sorted(skills_dir.iterdir()):
+                if d.is_dir():
+                    prefix = "[Q] " if d.name.startswith(QUARANTINE_PREFIX) else "    "
+                    name = d.name.removeprefix(QUARANTINE_PREFIX) if d.name.startswith(QUARANTINE_PREFIX) else d.name
+                    print(f"  {prefix}{name}")
+        sys.exit(1)
+
+    quarantined = skills_dir / (QUARANTINE_PREFIX + skill_name)
+    skill_dir.rename(quarantined)
+    print(f"Quarantined: {skill_name}")
+    print(f"  Moved: skills/{skill_name}/ -> skills/{QUARANTINE_PREFIX}{skill_name}/")
+    print(f"  OpenClaw will not load this skill on next session.")
+    print(f"  To restore: run 'unquarantine {skill_name}'")
+
+
+def cmd_unquarantine(workspace: Path, skill_name: str):
+    """Restore a quarantined skill."""
+    skills_dir = workspace / "skills"
+    quarantined = skills_dir / (QUARANTINE_PREFIX + skill_name)
+
+    if not quarantined.is_dir():
+        print(f"No quarantined skill found: {skill_name}")
+        sys.exit(1)
+
+    restored = skills_dir / skill_name
+    if restored.is_dir():
+        print(f"Cannot unquarantine: skills/{skill_name}/ already exists")
+        sys.exit(1)
+
+    quarantined.rename(restored)
+    print(f"Unquarantined: {skill_name}")
+    print(f"  Moved: skills/{QUARANTINE_PREFIX}{skill_name}/ -> skills/{skill_name}/")
+    print(f"  WARNING: Re-scan this skill before use.")
+
+
+def cmdtect(workspace: Path):
+    """Full scan + automatic countermeasures for critical threats.
+
+    Actions taken:
+    1. Run full integrity verification + injection scan
+    2. For critical injection findings: restore from snapshot if available
+    3. For modified critical files with injections: restore from snapshot
+    4. For skills containing injections: quarantine the skill
+    5. Report all actions taken
+    """
+    print("=" * 60)
+    print("WORKSPACE FULLTECTION SWEEP")
+    print("=" * 60)
+    print(f"Timestamp: {now_iso()}")
+    print()
+
+    verify_findings, scan_findings = cmd_full(workspace)
+    actions_taken = []
+
+    if not verify_findings and not scan_findings:
+        print("No threats detected. Workspace is clean.")
+        print("=" * 60)
+        return
+
+    # Identify files with injection findings
+    injected_files = set()
+    for f in scan_findings:
+        if f.get("severity") == SEVERITY_CRITICAL:
+            injected_files.add(f["file"])
+
+    # Identify modified critical files
+    modified_critical = set()
+    for f in verify_findings:
+        if f["type"] == "modified" and f["category"] == "critical":
+            modified_critical.add(f["file"])
+
+    print()
+    print("-" * 40)
+    print("COUNTERMEASURES")
+    print("-" * 40)
+
+    # Restore critical files that were modified and have injections
+    files_to_restore = (modified_critical & injected_files) | modified_critical
+    for rel in sorted(files_to_restore):
+        snap = get_snapshot_path(workspace, rel)
+        if snap:
+            import shutil
+            dest = workspace / rel
+            shutil.copy2(snap, dest)
+            actions_taken.append(f"RESTORED: {rel} (from baseline snapshot)")
+            print(f"  [RESTORE] {rel} <- baseline snapshot")
+        else:
+            # Try git rollback
+            git_dir = workspace / ".git"
+            if git_dir.exists():
+                import subprocess
+                result = subprocess.run(
+                    ["git", "checkout", "HEAD", "--", rel],
+                    cwd=str(workspace),
+                    capture_output=True, text=True,
+                )
+                if result.returncode == 0:
+                    actions_taken.append(f"ROLLED BACK: {rel} (from git)")
+                    print(f"  [ROLLBACK] {rel} <- git HEAD")
+                else:
+                    actions_taken.append(f"FAILED TO RESTORE: {rel}")
+                    print(f"  [FAILED] {rel} — no snapshot or git history")
+            else:
+                actions_taken.append(f"UNRESOLVED: {rel} — no snapshot available")
+                print(f"  [MANUAL] {rel} — no snapshot, review manually")
+
+    # Quarantine skills with critical injection findings
+    quarantined_skills = set()
+    for rel in injected_files:
+        if rel.startswith("skills/") and "/SKILL.md" in rel:
+            # Extract skill name: skills/<name>/SKILL.md
+            parts = rel.split("/")
+            if len(parts) >= 2:
+                skill_name = parts[1]
+                if skill_name.startswith(QUARANTINE_PREFIX):
+                    continue
+                if skill_name in SECURITY_SCAN_EXEMPT:
+                    continue
+                if skill_name not in quarantined_skills:
+                    skill_dir = workspace / "skills" / skill_name
+                    quarantined_dir = workspace / "skills" / (QUARANTINE_PREFIX + skill_name)
+                    if skill_dir.is_dir():
+                        skill_dir.rename(quarantined_dir)
+                        quarantined_skills.add(skill_name)
+                        actions_taken.append(f"QUARANTINED: skill '{skill_name}'")
+                        print(f"  [QUARANTINE] skills/{skill_name}/")
+
+    # Handle injected memory/other files (can't auto-restore, flag for review)
+    for rel in sorted(injected_files):
+        if rel.startswith("skills/"):
+            continue  # Handled above
+        if rel in files_to_restore:
+            continue  # Already restored
+        actions_taken.append(f"FLAGGED: {rel} — contains injections, manual review needed")
+        print(f"  [FLAG] {rel} — injection detected, review manually")
+
+    print()
+    if actions_taken:
+        print(f"ACTIONS TAKEN: {len(actions_taken)}")
+        for a in actions_taken:
+            print(f"  - {a}")
+    else:
+        print("No automatic actions taken. Review findings above.")
+
+    print()
+    print("NEXT STEPS:")
+    if files_to_restore:
+        print("  - Restored files should be re-verified: run 'verify'")
+    if quarantined_skills:
+        print("  - Quarantined skills will not load on next session")
+        print("  - Investigate quarantined skills before unquarantining")
+    print("  - Run 'baseline' to update baseline after review")
+    print("=" * 60)
 
 
 # ---------------------------------------------------------------------------
@@ -746,15 +1026,46 @@ def main():
         workspace = resolve_workspace(rest[1:])
         cmd_accept(workspace, filepath)
 
-    elif command in ("restore", "rollback", "quarantine", "unquarantine", "protect"):
-        print(f"'{command}' is a Pro feature.")
-        print("Upgrade to openclaw-warden-pro for countermeasures:")
-        print("  restore, rollback, quarantine, unquarantine, protect")
-        sys.exit(1)
+    elif command == "restore":
+        if not rest or rest[0].startswith("-"):
+            print("Usage: integrity.py restore <file> [--workspace PATH]")
+            sys.exit(1)
+        filepath = rest[0]
+        workspace = resolve_workspace(rest[1:])
+        cmd_restore(workspace, filepath)
+
+    elif command == "rollback":
+        if not rest or rest[0].startswith("-"):
+            print("Usage: integrity.py rollback <file> [--workspace PATH]")
+            sys.exit(1)
+        filepath = rest[0]
+        workspace = resolve_workspace(rest[1:])
+        cmd_rollback(workspace, filepath)
+
+    elif command == "quarantine":
+        if not rest or rest[0].startswith("-"):
+            print("Usage: integrity.py quarantine <skill-name> [--workspace PATH]")
+            sys.exit(1)
+        skill_name = rest[0]
+        workspace = resolve_workspace(rest[1:])
+        cmd_quarantine(workspace, skill_name)
+
+    elif command == "unquarantine":
+        if not rest or rest[0].startswith("-"):
+            print("Usage: integrity.py unquarantine <skill-name> [--workspace PATH]")
+            sys.exit(1)
+        skill_name = rest[0]
+        workspace = resolve_workspace(rest[1:])
+        cmd_unquarantine(workspace, skill_name)
+
+    elif command == "protect":
+        workspace = resolve_workspace(rest)
+        cmdtect(workspace)
 
     else:
         print(f"Unknown command: {command}")
-        print("Commands: baseline, verify, scan, full, status, accept")
+        print("Commands: baseline, verify, scan, full, status, accept,")
+        print("          restore, rollback, quarantine, unquarantine, protect")
         sys.exit(1)
 
 

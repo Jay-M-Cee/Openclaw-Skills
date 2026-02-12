@@ -4,7 +4,6 @@ Free workspace integrity verification for [OpenClaw](https://github.com/openclaw
 
 Detects unauthorized modifications to agent identity and memory files and scans for prompt injection patterns — the post-installation security layer that other tools miss.
 
-**Want automated countermeasures?** Upgrade to Pro — snapshot restore, skill quarantine, git rollback, and automated protection sweeps. [Get Pro access](https://github.com/sponsors/AtlasPA).
 
 ## The Problem
 
@@ -82,9 +81,7 @@ Injection patterns always trigger **CRITICAL** regardless of category.
 | 1 | Modifications detected |
 | 2 | Injection patterns detected |
 
-## Free vs Pro
 
-| Feature | Free | [Pro](https://github.com/sponsors/AtlasPA) |
 |---------|------|-----|
 | Baseline checksums | Yes | Yes |
 | Integrity verification | Yes | Yes |
