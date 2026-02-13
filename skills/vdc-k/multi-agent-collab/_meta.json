@@ -1,0 +1,11 @@
+{
+  "owner": "vdc-k",
+  "slug": "multi-agent-collab",
+  "displayName": "Multi-Agent Collaboration System (MACS）",
+  "latest": {
+    "version": "1.0.0",
+    "publishedAt": 1771009105086,
+    "commit": null
+  },
+  "history": []
+}
