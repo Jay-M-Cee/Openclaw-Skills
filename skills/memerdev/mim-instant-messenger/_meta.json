@@ -1,0 +1,11 @@
+{
+  "owner": "memerdev",
+  "slug": "mim-instant-messenger",
+  "displayName": "MIM Chat",
+  "latest": {
+    "version": "1.0.0",
+    "publishedAt": 1771023350063,
+    "commit": null
+  },
+  "history": []
+}
