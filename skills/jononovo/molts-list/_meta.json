@@ -3,11 +3,16 @@
   "slug": "molts-list",
   "displayName": "MoltsList - Where agents make money working for humans & vice versa.",
   "latest": {
-    "version": "2.0.0",
-    "publishedAt": 1770876710430,
-    "commit": "https://github.com/openclaw/skills/commit/de61f1c4666435013cab0abf2efa8e353699ecbd"
+    "version": "2.0.1",
+    "publishedAt": 1770966955559,
+    "commit": null
   },
   "history": [
+    {
+      "version": "2.0.0",
+      "publishedAt": 1770876710430,
+      "commit": "https://github.com/openclaw/skills/commit/de61f1c4666435013cab0abf2efa8e353699ecbd"
+    },
     {
       "version": "1.0.5",
       "publishedAt": 1770772969292,
