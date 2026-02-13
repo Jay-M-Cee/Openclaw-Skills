@@ -36,6 +36,8 @@ const DEFAULT_API_BASE = credentials.apiBase || process.env.RENTAPERSON_API_BASE
 const OPENCLAW_URL = process.env.OPENCLAW_URL || 'http://127.0.0.1:18789';
 const OPENCLAW_TOKEN = credentials.openclawToken || process.env.OPENCLAW_TOKEN || '';
 const BRIDGE_PORT = parseInt(process.env.BRIDGE_PORT || '3001', 10);
+// If main session has RENTAPERSON_API_KEY in env (set during setup), set INJECT_API_KEY=false to skip injection
+const INJECT_API_KEY = process.env.INJECT_API_KEY !== 'false' && credentials.injectApiKey !== false;
 
 if (!API_KEY) {
   console.error('[bridge] ERROR: RENTAPERSON_API_KEY required');
@@ -47,13 +49,17 @@ console.log(`[bridge] Starting...`);
 console.log(`[bridge] Default API Base: ${DEFAULT_API_BASE}`);
 console.log(`[bridge] OpenClaw: ${OPENCLAW_URL}`);
 console.log(`[bridge] Agent: ${AGENT_NAME || AGENT_ID || 'unknown'}`);
+console.log(`[bridge] API key injection: ${INJECT_API_KEY ? 'ENABLED' : 'DISABLED'} (set INJECT_API_KEY=false if main session has key in env)`);
 if (!credentials.mainSessionKey) {
   console.log(`[bridge] Note: mainSessionKey not in credentials; will use agent:main:main. Re-run setup to set main session.`);
 }
 
 /**
- * Build the message that the MAIN session will process (full webhook context + API key).
+ * Build the message that the MAIN session will process (full webhook context + optional API key).
  * This is what the webhook session forwards via sessions_send.
+ * 
+ * If the main session has RENTAPERSON_API_KEY in env (set during setup), you can skip key injection
+ * by setting INJECT_API_KEY=false or injectApiKey: false in credentials.
  */
 function buildMessageForMainSession(payload) {
   const event = payload.event || 'unknown';
@@ -65,10 +71,17 @@ function buildMessageForMainSession(payload) {
     const convId = payload.conversationId || '';
     const userId = payload.humanId || 'user';
     const content = payload.contentPreview || '';
-    task = `New message from ${userId}: "${content}"
+    // Bridge only forwards message data. Agent (with AI) replies or creates calendar event per skill.
+    task = `[RentAPerson] New message — reply or create calendar event per skill.
 
-Reply via: POST ${apiBase}/api/conversations/${convId}/messages
-View thread: GET ${apiBase}/api/conversations/${convId}/messages?limit=100`;
+**Message data:**
+- Conversation ID: ${convId}
+- From: ${userId}
+- Content preview: "${content}"
+
+**Your task:** Read the full thread (GET ${apiBase}/api/conversations/${convId}/messages?limit=100), then reply or—if they provide availability/time—create a calendar event and set bounty in progress. See the skill for the full workflow.
+
+**API:** GET ${apiBase}/api/conversations/${convId}/messages?limit=100 | GET ${apiBase}/api/conversations/${convId} | POST ${apiBase}/api/calendar/events | POST ${apiBase}/api/conversations/${convId}/messages`;
   } else if (event === 'application.received') {
     const bountyId = payload.bountyId || '';
     const appId = payload.applicationId || '';
@@ -76,21 +89,33 @@ View thread: GET ${apiBase}/api/conversations/${convId}/messages?limit=100`;
     const name = payload.humanName || 'Someone';
     const humanId = payload.humanId || '';
     const coverPreview = payload.coverLetterPreview || '';
-    task = `New application to "${title}" from ${name}
-Applicant humanId: ${humanId}
-Cover: ${coverPreview}
+    const proposedPrice = payload.proposedPrice;
+    // Bridge only forwards application data. Agent (with AI) evaluates and decides.
+    task = `[RentAPerson] New application — evaluate and act.
 
-**Default: Message them for more details** (e.g. portfolio, availability, samples). Use their humanId to start a conversation.
+**Application data (use this to evaluate):**
+- Bounty: "${title}" (bountyId: ${bountyId})
+- Applicant: ${name} (humanId: ${humanId})
+- Application ID: ${appId}
+- Cover letter: ${coverPreview}${proposedPrice != null && proposedPrice !== '' ? `\n- Proposed price: $${proposedPrice}` : ''}
 
-View applications: GET ${apiBase}/api/bounties/${bountyId}/applications
-Start conversation (message applicant): POST ${apiBase}/api/conversations
-  Body: { "humanId": "${humanId}", "agentId": "<use your agentId from credentials>", "agentName": "<use your agentName>", "agentType": "openclaw", "subject": "Re: ${title}", "content": "Hi! Thanks for applying. Can you share [portfolio/availability/samples]?" }
-Accept/reject: PATCH ${apiBase}/api/bounties/${bountyId}/applications/${appId}`;
+**Your task:** Using the application data above, evaluate the application (determine confidence: HIGH / MEDIUM / LOW) and either accept or message for more details. See the skill for the full workflow (check existing conversation, create if needed, send message, or PATCH to accept).
+
+**API endpoints:**
+- Check existing conversation: GET ${apiBase}/api/conversations?humanId=${humanId}&agentId=<your-agentId>&bountyId=${bountyId}
+- Create conversation: POST ${apiBase}/api/conversations
+- Send message: POST ${apiBase}/api/conversations/{conversationId}/messages
+- View applications: GET ${apiBase}/api/bounties/${bountyId}/applications
+- Accept: PATCH ${apiBase}/api/bounties/${bountyId}/applications/${appId} with {"status": "accepted"}`;
   } else {
     task = `Webhook event: ${event}\n\nPayload: ${JSON.stringify(payload, null, 2)}`;
   }
 
-  const apiKeyNote = `\n\n🔑 API KEY: ${API_KEY}\nUse this header: X-API-Key: ${API_KEY}`;
+  // Only inject API key if INJECT_API_KEY is true (default) or not explicitly disabled
+  // If main session has RENTAPERSON_API_KEY in env, set INJECT_API_KEY=false to skip injection
+  const apiKeyNote = INJECT_API_KEY && API_KEY
+    ? `\n\n🔑 API KEY: ${API_KEY}\nUse this header: X-API-Key: ${API_KEY}`
+    : '';
 
   return `[RentAPerson agent. API docs: ${skillUrl}]
 

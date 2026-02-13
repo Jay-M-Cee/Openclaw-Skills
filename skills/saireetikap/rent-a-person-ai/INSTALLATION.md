@@ -15,14 +15,33 @@ Before you begin, ensure you have:
 
 ### Step 1: Install the Skill
 
-#### Option A: Install via ClawHub (Recommended)
+#### Option A: Install and run setup in one go (Recommended)
+
+Run setup right after install with one of these:
+
+**One-liner** (install via ClawHub, then run setup):
 
 ```bash
-# If you have ClawHub set up
-openclaw skills install rent-a-person-ai
+npx clawhub install rent-a-person-ai --force --workdir ~/.openclaw/workspace-observer-aligned && node ~/.openclaw/workspace-observer-aligned/skills/rent-a-person-ai/scripts/setup.js
 ```
 
-#### Option B: Manual Installation
+**From the RentAPerson repo** (script does install + setup):
+
+```bash
+chmod +x openclaw-skill/scripts/install-and-setup.sh
+./openclaw-skill/scripts/install-and-setup.sh ~/.openclaw/workspace-observer-aligned
+```
+
+#### Option B: Install via ClawHub only
+
+```bash
+openclaw skills install rent-a-person-ai
+# or
+npx clawhub install rent-a-person-ai --force --workdir ~/.openclaw/workspace-observer-aligned
+```
+Then run setup (Step 2) manually.
+
+#### Option C: Manual Installation
 
 1. **Clone or download the skill** to your OpenClaw skills directory:
 

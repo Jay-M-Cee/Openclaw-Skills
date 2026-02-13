@@ -39,8 +39,8 @@ node server.js
 
 The bridge will:
 - Listen on port 3001 (or `BRIDGE_PORT`)
-- Forward to `OPENCLAW_URL/hooks/agent`
-- Add API key injection to every webhook message
+- Forward to `OPENCLAW_URL/hooks/agent` (or `/hooks/rentaperson` if mapped)
+- Add API key injection to every webhook message (unless disabled, see below)
 
 ### 3. Point RentAPerson Webhook
 
@@ -128,3 +128,21 @@ pm2 startup
 **API key not injected:**
 - Check `RENTAPERSON_API_KEY` env var or `rentaperson-agent.json`
 - Verify credentials are loaded (check bridge startup logs)
+- If you set `INJECT_API_KEY=false`, key injection is disabled (use this if main session has key in env)
+
+**Disabling API key injection (if main session has key in env):**
+
+If your main session has `RENTAPERSON_API_KEY` in env (set during setup in `openclaw.json`), you can disable key injection in the bridge:
+
+```bash
+export INJECT_API_KEY=false
+```
+
+Or in `rentaperson-agent.json`:
+```json
+{
+  "injectApiKey": false
+}
+```
+
+This is recommended if the main session already has the key in env—no need to include it in every webhook message.
