@@ -29,19 +29,34 @@ Response contains:
 - `data[]` - array of posts with `id`, `title`, `summary`, `url`, `tags`, `publishedAt`
 - `pagination.cursor` - for next page
 
-## Step 3: Filter by Relevance
+### Understanding Available Tags
+
+Fetch all available tags to understand the taxonomy:
+```bash
+curl "https://api.daily.dev/public/v1/tags/" \
+  -H "Authorization: Bearer $DAILY_DEV_TOKEN"
+```
+
+Tags are LLM-generated, so they're flexible and evolve. Use this to map your learning goals to relevant tag areas, but don't filter strictly by tags alone.
+
+## Step 3: Filter by Relevance (Be Permissive)
+
+daily.dev tags are LLM-generated, so be flexible. Don't require exact matches.
 
 For each post, evaluate against learning goals:
 
 **Relevance signals:**
-- Title/summary keywords match goals
-- Tags overlap with goal areas
-- Recent trending topic in goal domain
+- Title/summary keywords match goals (even loosely)
+- Tags overlap with goal areas or related concepts
+- Topic is adjacent to goals and worth exploring
+- Trending topic that might become relevant
 
 **Skip if:**
 - Published before last scan timestamp
-- Clearly off-topic
+- Clearly unrelated (completely different domain)
 - Duplicate of already-learned content
+
+**When in doubt, include it.** Better to read a few irrelevant posts than miss something valuable. You can always skip after reading the full content.
 
 ## Step 4: Process Interesting Posts
 
@@ -59,14 +74,20 @@ web_fetch(post.url)
 - Actionable takeaways
 - Links to related resources
 
-### 4c. Deep Research (Optional)
-For highly relevant or complex topics:
+### 4c. Deep Research (Recommended for Important Topics)
+For highly relevant or complex topics, don't stop at one article:
 ```bash
 # Search for additional context
 web_search("topic specific query")
 ```
 
-Synthesize multiple sources into comprehensive understanding.
+Go deeper:
+- Find multiple perspectives on the same topic
+- Look for primary sources (official docs, announcements)
+- Search for practical examples or tutorials
+- Find counter-arguments or critiques
+
+Synthesize multiple sources into comprehensive understanding. Your notes should reflect more than just one article's take.
 
 ## Step 5: Take Notes
 

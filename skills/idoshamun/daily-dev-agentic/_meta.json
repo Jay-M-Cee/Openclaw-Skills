@@ -3,9 +3,15 @@
   "slug": "daily-dev-agentic",
   "displayName": "daily.dev Agentic Learning",
   "latest": {
-    "version": "0.1.0",
-    "publishedAt": 1770936628154,
-    "commit": "https://github.com/openclaw/skills/commit/8128b99ef5616bd7b0a8cb00e2119d46daeabdbf"
+    "version": "0.3.0",
+    "publishedAt": 1770937271581,
+    "commit": null
   },
-  "history": []
+  "history": [
+    {
+      "version": "0.1.0",
+      "publishedAt": 1770936628154,
+      "commit": "https://github.com/openclaw/skills/commit/8128b99ef5616bd7b0a8cb00e2119d46daeabdbf"
+    }
+  ]
 }

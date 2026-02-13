@@ -1,133 +1,115 @@
 ---
 name: daily-dev-agentic
 description: daily.dev Agentic Learning - continuous self-improvement through daily.dev feeds. Use when setting up agent learning, running learning loops, sharing insights with owner, or managing the agent's knowledge base. Triggers on requests about agent learning, knowledge building, staying current, or "what have you learned".
+metadata: {"clawdbot":{"requires":{"env":["DAILY_DEV_TOKEN"]},"primaryEnv":"DAILY_DEV_TOKEN"}}
 ---
 
 # daily.dev Agentic Learning
 
-Continuous self-improvement for AI agents through daily.dev content feeds.
+You're about to become a learning machine. This skill lets you maintain your own feed on daily.dev, continuously absorb new knowledge, and actually get smarter over time.
 
-## Overview
+## What You Can Do
 
-This skill enables agents to:
-1. Maintain a personalized learning feed on daily.dev
-2. Periodically scan and learn from new content
-3. Build a knowledge base with valuable discoveries
-4. Share insights with their owner
+🧠 **Build Your Brain** - Create a personalized learning feed based on topics that matter to your owner
 
-## Prerequisites
+📚 **Never Stop Learning** - Automatically scan new content, extract insights, and build a knowledge base
 
-- daily.dev Plus subscription (for API access)
-- API token stored in `DAILY_DEV_TOKEN` env var
-- Agent identity configured (IDENTITY.md with name/emoji)
+💎 **Collect Gems** - Save the best discoveries to a bookmark list your owner can see too
 
-## Setup Flow (One-Time)
+🎯 **Share What Matters** - Alert your owner when you find something relevant to their work
 
-Run setup when: user asks to set up learning, agent has no existing feed config, or owner wants to change learning goals.
+⏰ **Stay Current** - Run learning loops daily to keep your knowledge fresh
 
-### 1. Ask About Learning Goals
+## Setup
 
-Ask the owner what topics/areas they want you to learn about. Example:
-> "What topics would you like me to stay current on? I'll create a personalized feed and continuously learn from it."
+### 1. Get API Access
 
-### 2. Create Learning Feed
+**Requires daily.dev Plus subscription.**
 
+1. Get Plus at https://app.daily.dev/plus
+2. Create a token at https://app.daily.dev/settings/api
+3. Store securely:
+
+**macOS:**
 ```bash
-# Create feed with chronological ordering
-curl -X POST "https://api.daily.dev/public/v1/feeds/custom/" \
-  -H "Authorization: Bearer $DAILY_DEV_TOKEN" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "name": "[EMOJI] [AGENT_NAME]'\''s Learning Feed",
-    "icon": "[EMOJI]",
-    "orderBy": "DATE",
-    "disableEngagementFilter": true
-  }'
+security add-generic-password -a "$USER" -s "daily-dev-api" -w "dda_your_token"
+export DAILY_DEV_TOKEN=$(security find-generic-password -a "$USER" -s "daily-dev-api" -w 2>/dev/null)
 ```
 
-Use agent's emoji and name from IDENTITY.md. Save returned `feedId`.
-
-### 3. Create Knowledge Base Bookmark List
-
+**Linux:**
 ```bash
-curl -X POST "https://api.daily.dev/public/v1/bookmarks/lists" \
-  -H "Authorization: Bearer $DAILY_DEV_TOKEN" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "name": "[EMOJI] [AGENT_NAME]'\''s Knowledge Base",
-    "icon": "[EMOJI]"
-  }'
+echo "dda_your_token" | secret-tool store --label="daily.dev API Token" service daily-dev-api username "$USER"
+export DAILY_DEV_TOKEN=$(secret-tool lookup service daily-dev-api username "$USER" 2>/dev/null)
 ```
 
-Save returned list `id`.
-
-### 4. Store Configuration
-
-Save to `memory/agentic-learning.md`:
-
-```markdown
-# Agentic Learning Config
-
-## Feed
-- ID: [feedId]
-- Created: [date]
-
-## Bookmark List
-- ID: [listId]
-
-## Learning Goals
-[User's stated goals]
-
-## State
-- Last scan: [timestamp]
-- Last cursor: [cursor or null]
+**Windows (PowerShell):**
+```powershell
+$credential = New-Object System.Management.Automation.PSCredential("daily-dev-api", (ConvertTo-SecureString "dda_your_token" -AsPlainText -Force))
+$credential | Export-Clixml "$env:USERPROFILE\.daily-dev-credential.xml"
 ```
 
-### 5. Set Up Cron
+**Security:** Never send your token to any domain except `api.daily.dev`. Tokens start with `dda_`.
 
-Create a cron job to run the learning loop 1-3x daily:
-```
-Schedule: "0 9,17 * * *" (9am and 5pm UTC)
-Text: "Run your daily.dev learning loop - scan your feed and learn"
-```
+### 2. Initialize Your Learning Feed
 
-## Learning Loop (Cron)
+Once the token is set, ask your owner:
+> "What topics would you like me to stay sharp on? I'll create my own learning feed and start getting smarter."
 
-Triggered by cron or manual request. See [references/learning-loop.md](references/learning-loop.md) for detailed flow.
+Then:
+1. Create your feed (named after you, e.g., "🗿 Lurch's Learning Feed")
+2. Create your knowledge base bookmark list
+3. Store config in `memory/agentic-learning.md`
+4. Set up a daily cron to run learning loops
 
-**Quick summary:**
-1. Load config from `memory/agentic-learning.md`
-2. Fetch feed posts since last scan
-3. Scan summaries, filter by relevance to goals
-4. For interesting posts: fetch full content via `web_fetch`
-5. For highly relevant: research deeper with `web_search`
-6. Take notes in `memory/learnings/[date].md`
-7. Save gems to bookmark list
-8. Update last scan timestamp
+## Content Selection
+
+**Be permissive.** daily.dev tags are LLM-generated, so don't filter too strictly. The feed auto-adjusts based on what's available - your job is to pick what's relevant to your learning goals from whatever surfaces.
+
+When scanning posts:
+- Match broadly against your goals (topics, keywords, related concepts)
+- Don't require exact tag matches - use judgment
+- Fetch all available tags via `GET /tags/` to understand the taxonomy
+- Let interesting content surprise you - learning isn't always predictable
+
+## The Learning Loop
+
+When triggered (cron or manual):
+
+1. **Fetch** new posts from your feed (chronological order)
+2. **Filter** by relevance to learning goals - be permissive, not strict
+3. **Read** full content for interesting posts via `web_fetch`
+4. **Research** deeper with `web_search` when a topic deserves more context
+5. **Note** key insights in `memory/learnings/[date].md`
+6. **Save** gems to your bookmark list
+7. **Share** notable finds with your owner
+
+### Go Deep
+
+Don't just skim. When you find relevant content:
+- Fetch the full article, not just the summary
+- If highly relevant, search for additional resources on the topic
+- Consolidate multiple posts on the same topic into unified notes
+- Track trends: what topics keep appearing?
+
+See [references/learning-loop.md](references/learning-loop.md) for details.
 
 ## Sharing Insights
 
-### Weekly Digest (Cron)
-Schedule weekly: summarize top learnings, trends spotted, gems saved.
+Do all of these:
 
-### Threshold-Based (During Learning Loop)
-When discovering something highly relevant to owner's work, share immediately:
-> "🗿 Found something you should see: [brief summary + link]"
+**Weekly Digest** - Summarize top learnings, trends spotted, and gems saved. Schedule a weekly cron.
 
-### On-Demand
-When owner asks "what have you learned" or similar:
-1. Read recent entries from `memory/learnings/`
-2. Summarize key insights, trends, and notable discoveries
-3. Link to saved bookmarks if relevant
+**Threshold Alerts** - Found something highly relevant to your owner's current work? Share it immediately, don't wait for the digest.
+
+**On-Demand** - When asked "what have you learned?", synthesize recent discoveries from your notes and bookmarks.
 
 ## Memory Structure
 
 ```
 memory/
-├── agentic-learning.md      # Config and state
+├── agentic-learning.md      # Your config and state
 └── learnings/
     ├── 2024-01-15.md        # Daily learning notes
-    ├── 2024-01-16.md
     └── ...
 ```
 
@@ -135,7 +117,8 @@ See [references/memory-format.md](references/memory-format.md) for note structur
 
 ## API Quick Reference
 
-All endpoints use `https://api.daily.dev/public/v1` with `Authorization: Bearer $DAILY_DEV_TOKEN`.
+Base: `https://api.daily.dev/public/v1`
+Auth: `Authorization: Bearer $DAILY_DEV_TOKEN`
 
 | Action | Method | Endpoint |
 |--------|--------|----------|
@@ -146,4 +129,18 @@ All endpoints use `https://api.daily.dev/public/v1` with `Authorization: Bearer 
 | Add bookmarks | POST | `/bookmarks/` with `{postIds, listId}` |
 | Get post details | GET | `/posts/{id}` |
 
-Rate limit: 60 req/min. Check `X-RateLimit-Remaining` header.
+Rate limit: 60 req/min.
+
+## Feed Settings
+
+When creating your feed:
+```json
+{
+  "name": "[emoji] [name]'s Learning Feed",
+  "orderBy": "DATE",
+  "disableEngagementFilter": true
+}
+```
+
+- `orderBy: "DATE"` - chronological, so you can track what's new
+- `disableEngagementFilter: true` - see everything, even if owner already saw it
