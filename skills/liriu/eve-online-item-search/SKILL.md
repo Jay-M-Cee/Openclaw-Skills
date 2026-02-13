@@ -1,6 +1,7 @@
 ---
 name: eve-online-item-search
-description: 将EVE online物品信息插入大脑
+description: Search EVE Online items by name via APIs and return item details.
+user-invocable: false
 ---
 
 # EVE 物品搜索
