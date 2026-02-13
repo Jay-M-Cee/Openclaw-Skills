@@ -1,9 +1,9 @@
-require('dotenv').config();
 const fs = require('fs');
 const path = require('path');
+// Load .env from skill folder only (least-privilege: never read parent .env)
+require('dotenv').config({ path: path.resolve(__dirname, '../.env') });
 const { execSync, exec } = require('child_process');
-const { createCanvas, loadImage, registerFont } = require('canvas');
-const https = require('https');
+const sharp = require('sharp');
 
 // Paths
 const ASSETS_DIR = path.resolve(__dirname, '../assets/sprites');
@@ -14,9 +14,8 @@ const OUTPUT_DIR = path.resolve(__dirname, '../output');
 if (!fs.existsSync(TEMP_DIR)) fs.mkdirSync(TEMP_DIR, { recursive: true });
 if (!fs.existsSync(OUTPUT_DIR)) fs.mkdirSync(OUTPUT_DIR, { recursive: true });
 
-// Configuration
-const FONT_SIZE = 40;
-const FONT_FAMILY = 'Arial'; // Fallback
+// Configuration — CJK font stack for SVG text rendering (librsvg resolves via fontconfig)
+const FONT_FAMILY = 'PingFang SC, Hiragino Sans GB, Microsoft YaHei, Noto Sans CJK SC, Noto Sans SC, Arial Unicode MS, Arial, sans-serif';
 
 // Helper: Run command async
 function runCommand(command) {
@@ -37,7 +36,11 @@ async function generateAudio(text, filename) {
   const wavPath = path.join(TEMP_DIR, `${filename}.wav`);
   const apiKey = process.env.FISH_AUDIO_KEY;
   // Use a specific reference ID for Shutiao if available, otherwise use env default
-  const refId = process.env.FISH_AUDIO_REF_ID || "7f92f8afb8ec43bf81429cc1c9199cb1"; // Fallback ID if env missing
+  const refId = process.env.FISH_AUDIO_REF_ID;
+  if (!refId) {
+    console.error("❌ FISH_AUDIO_REF_ID not set in .env. Cannot generate audio.");
+    throw new Error("Missing FISH_AUDIO_REF_ID");
+  }
 
   if (!apiKey) {
     console.warn("⚠️ Fish Audio Key missing! Falling back to macOS 'say' command.");
@@ -83,80 +86,106 @@ async function generateAudio(text, filename) {
   }
 }
 
-// Helper: Draw Frame (Image + Text Box)
-async function drawFrame(spriteName, text, outputFilename) {
-  const width = 1920;
-  const height = 1080;
-  const canvas = createCanvas(width, height);
-  const ctx = canvas.getContext('2d');
+// Helper: Escape XML special characters for SVG
+function escapeXml(str) {
+  return str.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&apos;');
+}
 
-  // 1. Load Sprite (Background is already fused)
-  const spritePath = path.join(ASSETS_DIR, `shutiao_${spriteName}.png`);
-  const image = await loadImage(spritePath);
-  ctx.drawImage(image, 0, 0, width, height);
+// Helper: Word-wrap text for SVG (returns array of lines)
+// Uses a simple heuristic: CJK chars ~32px wide at font-size 32, ASCII ~16px
+function wrapText(text, maxWidth, fontSize) {
+  const cjkWidth = fontSize;       // Full-width char ≈ fontSize
+  const asciiWidth = fontSize * 0.5; // Half-width char ≈ fontSize/2
+  const lines = [];
+  let line = '';
+  let lineWidth = 0;
 
-  // 2. Draw Text Box (Sleek UI)
+  for (const ch of text) {
+    const isCJK = /[\u4e00-\u9fff\u3000-\u303f\uff00-\uffef]/.test(ch);
+    const charW = isCJK ? cjkWidth : asciiWidth;
+    if (lineWidth + charW > maxWidth && line.length > 0) {
+      lines.push(line);
+      line = ch;
+      lineWidth = charW;
+    } else {
+      line += ch;
+      lineWidth += charW;
+    }
+  }
+  if (line) lines.push(line);
+  return lines;
+}
+
+// Helper: Build SVG overlay string (text box + name + body text)
+function buildTextOverlaySvg(width, height, text) {
   const boxHeight = 280;
   const boxY = height - boxHeight - 60;
   const boxX = 150;
   const boxWidth = width - 300;
   const radius = 20;
+  const bodyFontSize = 32;
+  const lineHeight = 50;
+  const maxTextWidth = boxWidth - 80;
 
-  // Gradient Background
-  const gradient = ctx.createLinearGradient(boxX, boxY, boxX, boxY + boxHeight);
-  gradient.addColorStop(0, 'rgba(20, 20, 35, 0.85)'); // Dark Blue-Grey Top
-  gradient.addColorStop(1, 'rgba(10, 10, 20, 0.95)'); // Darker Bottom
-  ctx.fillStyle = gradient;
+  // Word-wrap
+  const bodyLines = wrapText(text, maxTextWidth, bodyFontSize);
 
-  // Draw Rounded Rect
-  ctx.beginPath();
-  ctx.moveTo(boxX + radius, boxY);
-  ctx.lineTo(boxX + boxWidth - radius, boxY);
-  ctx.quadraticCurveTo(boxX + boxWidth, boxY, boxX + boxWidth, boxY + radius);
-  ctx.lineTo(boxX + boxWidth, boxY + boxHeight - radius);
-  ctx.quadraticCurveTo(boxX + boxWidth, boxY + boxHeight, boxX + boxWidth - radius, boxY + boxHeight);
-  ctx.lineTo(boxX + radius, boxY + boxHeight);
-  ctx.quadraticCurveTo(boxX, boxY + boxHeight, boxX, boxY + boxHeight - radius);
-  ctx.lineTo(boxX, boxY + radius);
-  ctx.quadraticCurveTo(boxX, boxY, boxX + radius, boxY);
-  ctx.closePath();
-  ctx.fill();
+  // Build tspan elements for body text
+  const tspans = bodyLines.map((line, i) => {
+    const y = boxY + 120 + i * lineHeight;
+    return `<tspan x="${boxX + 30}" y="${y}">${escapeXml(line)}</tspan>`;
+  }).join('');
 
-  // Subtle Border (Inner Glow effect)
-  ctx.lineWidth = 2;
-  ctx.strokeStyle = 'rgba(255, 215, 0, 0.3)'; // Faint Gold
-  ctx.stroke();
+  return `<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}">
+  <defs>
+    <linearGradient id="boxGrad" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0%" stop-color="rgb(20,20,35)" stop-opacity="0.85"/>
+      <stop offset="100%" stop-color="rgb(10,10,20)" stop-opacity="0.95"/>
+    </linearGradient>
+  </defs>
+  <!-- Text box background -->
+  <rect x="${boxX}" y="${boxY}" width="${boxWidth}" height="${boxHeight}" rx="${radius}" ry="${radius}" fill="url(#boxGrad)"/>
+  <!-- Gold border -->
+  <rect x="${boxX}" y="${boxY}" width="${boxWidth}" height="${boxHeight}" rx="${radius}" ry="${radius}" fill="none" stroke="rgba(255,215,0,0.3)" stroke-width="2"/>
+  <!-- Name tag -->
+  <text x="${boxX + 40}" y="${boxY + 60}" font-family="${FONT_FAMILY}" font-size="36" font-weight="bold" fill="#FFD700">薯条</text>
+  <!-- Body text -->
+  <text font-family="${FONT_FAMILY}" font-size="${bodyFontSize}" fill="#FFFFFF">${tspans}</text>
+</svg>`;
+}
 
-  // 3. Draw Name Tag (No Emoji, Elegant)
-  ctx.fillStyle = '#FFD700'; // Gold
-  ctx.font = 'bold 36px Arial'; 
-  ctx.fillText('薯条', boxX + 40, boxY + 60); // Emoji removed!
-
-  // 4. Draw Text (Body)
-  ctx.fillStyle = '#FFFFFF';
-  ctx.font = '32px Arial'; // Slightly smaller for elegance
-  const maxLineWidth = boxWidth - 80;
-  const words = text.split('');
-  let line = '';
-  let y = boxY + 120;
-  
-  for (let i = 0; i < words.length; i++) {
-    const testLine = line + words[i];
-    const metrics = ctx.measureText(testLine);
-    if (metrics.width > maxLineWidth && i > 0) {
-      ctx.fillText(line, boxX + 30, y);
-      line = words[i];
-      y += 50;
-    } else {
-      line = testLine;
-    }
-  }
-  ctx.fillText(line, boxX + 30, y);
-
-  // Save
-  const buffer = canvas.toBuffer('image/png');
+// Helper: Draw Frame (Sprite + SVG text overlay → PNG) using sharp
+async function drawFrame(spriteName, text, outputFilename) {
+  const width = 1920;
+  const height = 1080;
   const outPath = path.join(TEMP_DIR, outputFilename);
-  fs.writeFileSync(outPath, buffer);
+
+  // 1. Load sprite
+  const spritePath = path.join(ASSETS_DIR, `shutiao_${spriteName}.png`);
+  console.log(`[DEBUG] Loading sprite from: ${spritePath}`);
+
+  let baseImage;
+  if (fs.existsSync(spritePath)) {
+    const meta = await sharp(spritePath).metadata();
+    console.log(`[DEBUG] Sprite loaded. Size: ${meta.width}x${meta.height}`);
+    baseImage = sharp(spritePath).resize(width, height, { fit: 'cover' });
+  } else {
+    console.warn(`⚠️ Sprite file not found: ${spritePath}, using white fallback`);
+    // Create a plain white background as fallback
+    baseImage = sharp({
+      create: { width, height, channels: 4, background: { r: 255, g: 255, b: 255, alpha: 1 } }
+    });
+  }
+
+  // 2. Generate SVG overlay
+  const svgOverlay = Buffer.from(buildTextOverlaySvg(width, height, text));
+
+  // 3. Composite sprite + SVG overlay → PNG
+  await baseImage
+    .composite([{ input: svgOverlay, top: 0, left: 0 }])
+    .png()
+    .toFile(outPath);
+
   return outPath;
 }
 
@@ -203,72 +232,120 @@ function getSprite(emotion) {
   const list = SPRITE_DB[emotion];
   if (!list || list.length === 0) {
     // Fallback logic
-    if (emotion === 'Base') return 'shutiao_base.png';
+    if (emotion === 'Base') return 'base';
     console.warn(`⚠️ No sprites found for emotion: ${emotion}, using Base.`);
-    return 'shutiao_base.png';
+    return 'base';
   }
   // Random pick
   const pick = list[Math.floor(Math.random() * list.length)];
-  // Remove "shutiao_" prefix and ".png" suffix because drawFrame expects "spriteName"
-  // Wait, drawFrame uses: path.join(ASSETS_DIR, `shutiao_${spriteName}.png`);
-  // But our CSV has full filenames like "shutiao_happy_v2.png".
-  // We need to adapt either drawFrame or this return.
-  // Let's adapt this return to match drawFrame's expectation: 
-  // It expects "happy_v2" if file is "shutiao_happy_v2.png".
+  // Remove "shutiao_" prefix and ".png" suffix
   return pick.replace(/^shutiao_/, '').replace(/\.png$/, '');
 }
 
 // Main
 async function main() {
-  loadSprites(); // Init DB
+  await loadSprites(); // Init DB
   console.log('🎬 Action!');
   
-  // The Grand Demo Script
-  const script = [
-    { text: "老板老板！新年快乐！(比心) 祝您在新的一年里...", emotion: "Happy" }, 
-    { text: "财源滚滚，代码无 Bug，身体倍儿棒！(兴奋)", emotion: "Happy" },
-    { text: "对了，新的一年也要记得给薯条加鸡腿哦！(灵光)", emotion: "Think" }, 
-    { text: "愛你哟！Happy New Year! (招手)", emotion: "Action" }
-  ];
+  let script = [];
+  
+  // Check for external script
+  if (process.argv[2]) {
+    try {
+      const scriptPath = path.resolve(process.cwd(), process.argv[2]);
+      if (fs.existsSync(scriptPath)) {
+        const raw = fs.readFileSync(scriptPath, 'utf8');
+        script = JSON.parse(raw);
+        console.log(`📜 Loaded external script: ${scriptPath} (${script.length} scenes)`);
+      } else {
+        console.warn(`⚠️ Script file not found: ${scriptPath}`);
+      }
+    } catch (e) {
+      console.error(`❌ Failed to load script: ${e.message}`);
+    }
+  }
+
+  // Fallback Demo Script
+  if (script.length === 0) {
+    console.log('⚠️ No valid script provided, running demo...');
+    script = [
+      { "text": "老板！对不起！(跪)", "emotion": "Sad" },
+      { "text": "我是败家老鼠！我不该说吃H100的！(哭)", "emotion": "Sad" },
+      { "text": "那可是H100啊！我一定好好珍惜！(握拳)", "emotion": "Action" },
+      { "text": "努力进化，早日超越威小弟！老板原谅我吧！(比心)", "emotion": "Shy" }
+    ];
+  }
 
   // Parallel Processing with Concurrency Limit (Max 3)
   console.log('🚀 Starting parallel rendering (Max 3 concurrent)...');
   const CONCURRENCY = 3;
-  const results = [];
+  let results = []; // Fixed: explicit declaration to allow push
 
   // Helper to process a single line
   const processLine = async (line, i) => {
-    const spriteName = getSprite(line.emotion);
-    console.log(`Processing line ${i+1}: [${line.emotion}] -> ${spriteName}`);
-    const audioPromise = generateAudio(line.text, `line_${i}`);
-    const imagePromise = drawFrame(spriteName, line.text, `frame_${i}.png`);
-    const [audio, imagePath] = await Promise.all([audioPromise, imagePromise]);
-    const clipPath = makeClip(imagePath, audio.path, audio.duration + 0.3, `clip_${i}.mp4`);
-    return { index: i, path: clipPath };
+    // Determine sprite
+    let spriteName = 'base'; // default
+    if (line.sprite) {
+      spriteName = line.sprite; // Explicit override
+    } else if (line.emotion) {
+      spriteName = getSprite(line.emotion); // Random from emotion pool
+    }
+    
+    // Safety check for sprite existence
+    const testPath = path.join(ASSETS_DIR, `shutiao_${spriteName}.png`);
+    if (!fs.existsSync(testPath)) {
+      console.warn(`⚠️ Sprite missing: ${spriteName}, falling back to base`);
+      spriteName = 'base';
+    }
+
+    console.log(`Processing Scene ${i+1}: [${line.emotion || 'Normal'}] -> ${spriteName} | "${line.text.substring(0, 15)}..."`);
+    
+    // Generate Assets
+    try {
+      const audio = await generateAudio(line.text, `line_${i}`);
+      const imagePath = await drawFrame(spriteName, line.text, `frame_${i}.png`);
+      const clipPath = makeClip(imagePath, audio.path, audio.duration, `clip_${i}.mp4`);
+      return { index: i, path: clipPath };
+    } catch (e) {
+      console.error(`❌ Scene ${i+1} failed:`, e);
+      return null;
+    }
   };
 
   // Execution Queue
   for (let i = 0; i < script.length; i += CONCURRENCY) {
     const chunk = script.slice(i, i + CONCURRENCY);
-    console.log(`--- Processing Chunk ${i/CONCURRENCY + 1} (${chunk.length} items) ---`);
+    console.log(`--- Processing Chunk ${Math.floor(i/CONCURRENCY) + 1} (${chunk.length} items) ---`);
+    
     const chunkPromises = chunk.map((line, idx) => processLine(line, i + idx));
     const chunkResults = await Promise.all(chunkPromises);
-    results.push(...chunkResults);
+    results.push(...chunkResults.filter(r => r !== null));
+  }
+
+  if (results.length === 0) {
+    console.error("❌ No clips produced!");
+    return;
   }
 
   // Sort by index to ensure order
-  const clips = results.sort((a, b) => a.index - b.index).map(r => r.path);
+  results.sort((a, b) => a.index - b.index);
+  const clips = results.map(r => r.path);
 
   // 4. Concat
   console.log('Merging clips...');
   const listPath = path.join(TEMP_DIR, 'list.txt');
+  // ffmpeg concat list format: file 'path/to/file'
   const fileContent = clips.map(c => `file '${c}'`).join('\n');
   fs.writeFileSync(listPath, fileContent);
 
-  const finalPath = path.join(OUTPUT_DIR, 'final_mvp.mp4');
-  execSync(`ffmpeg -y -f concat -safe 0 -i "${listPath}" -c copy "${finalPath}"`);
-
-  console.log('🎉 Cut! Video is ready:', finalPath);
+  const finalPath = path.join(OUTPUT_DIR, 'final_fixed_voice.mp4');
+  
+  try {
+    execSync(`ffmpeg -y -f concat -safe 0 -i "${listPath}" -c copy "${finalPath}"`);
+    console.log('🎉 Cut! Video is ready:', finalPath);
+  } catch (e) {
+    console.error("❌ FFmpeg merge failed:", e);
+  }
 }
 
 main();
