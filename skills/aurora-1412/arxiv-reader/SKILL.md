@@ -1,48 +1,55 @@
-ArXiv Reader Skill
+---
+name: Arxiv Paper Reader
+description: 利用python，指定某个arxiv_id/url， 基于 LLM Agent 对这篇arxiv论文进行分类与深度阅读，直接print打印阅读笔记
+metadata: {"openclaw":{"requires":{"bins":["uv"],"env":["LLM_API_KEY","LLM_BASE_URL","LLM_TEMPERATURE","LLM_MAX_TOKENS"]},"primaryEnv":"LLM_API_KEY"}}
+---
 
-This skill allows the agent to read one arXiv paper (by arXiv ID or URL) and output raw markdown notes by running a Python script.
+## 快速开始
 
-Setup
-Install dependencies in your Python environment:
-pip install -r "{baseDir}/requirements.txt"
+### 1. 配置 `.env`
 
-Configure environment variables (for example in .env):
-- LLM_BASE_URL
-- LLM_API_KEY
-- LLM_TEMPERATURE
-- LLM_MAX_TOKENS
+```bash
+cp .env.example .env   # 或直接编辑 .env
+```
 
-Instructions
-To read a paper:
-Execute the Python script located at {baseDir}/main.py. Use the following command:
-python "{baseDir}/main.py" --arxiv-id "<arxiv_id_or_url>"
-Typical examples of <arxiv_id_or_url>:
-- New style ID: 2401.12345
-- New style ID with version: 2401.12345v2
-- Legacy style ID: cs/9901001
-- abs URL: https://arxiv.org/abs/2401.12345
-- abs URL with version: https://arxiv.org/abs/2401.12345v2
-- pdf URL: https://arxiv.org/pdf/2401.12345.pdf
-The script will output the paper reading result in raw markdown format.
-Return the script's output directly as the final answer.
+确定你已经配置了：
+- `LLM_API_KEY` — OpenAI 或兼容 API 的密钥
+- `LLM_BASE_URL` — API 地址
 
-To list available paper categories:
-python "{baseDir}/main.py" --list
+### 2. 运行
 
-If the user specifies a category, run:
-python "{baseDir}/main.py" --arxiv-id "<arxiv_id_or_url>" --category "<category_name>"
+```bash
+uv venv
+uv pip install -r "{baseDir}/requirements.txt"
 
-Adding a New Category
-If none of the existing categories fits, you can add a new category under skills/.
-Follow these rules:
-1. The new category must not duplicate any existing category.
-2. The new category folder name is the category name.
-3. The new category folder must contain exactly these two files:
-   - _metadata.md: describe the characteristics of papers in this category and provide keywords.
-   - reading_prompt.md: explain how to read papers in this category and what format the generated reading notes should follow.
+# 单篇论文模式：指定 arxiv_id 或 URL
+uv run python "{baseDir}/main.py" --arxiv-id 2401.12345
+uv run python "{baseDir}/main.py" --arxiv-id https://arxiv.org/abs/2401.12345
+uv run python "{baseDir}/main.py" --arxiv-id https://arxiv.org/pdf/2401.12345.pdf
 
-Example structure
-skills/
-  <category_name>/
-    _metadata.md
-    reading_prompt.md
+# 指定以特定类别阅读
+uv run python "{baseDir}/main.py" --arxiv-id xxxx --category yyy
+
+# 查看所有类别
+uv run python "{baseDir}/main.py" --list
+
+```
+
+## 添加新的阅读分类
+
+在 `skills/` 下新建文件夹，包含两个文件：
+
+```
+skills/your_new_category/
+├── _metadata.md        # 分类描述（告诉 Classifier 什么论文属于这个类别）
+└── reading_prompt.md   # 阅读指南（告诉 Reader Agent 重点关注什么）
+```
+
+重启即可自动识别，无需修改任何代码。
+
+## Python包
+
+- LangChain 1.x — Agent 框架（基于 LangGraph）
+- LangChain OpenAI — LLM 接口（兼容 DeepSeek 等 OpenAI-compatible API）
+- arxiv — 官方 Python 库
+- arxiv-to-prompt 获取arxiv论文latex源码

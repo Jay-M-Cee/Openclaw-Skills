@@ -18,15 +18,5 @@ LLM_MODEL = os.getenv("LLM_MODEL", "gpt-4o")
 LLM_TEMPERATURE = float(os.getenv("LLM_TEMPERATURE", "0.3"))
 LLM_MAX_TOKENS = int(os.getenv("LLM_MAX_TOKENS", "16000"))
 
-# ── ArXiv ────────────────────────────────────────────────────
-ARXIV_CATEGORIES = [
-    c.strip()
-    for c in os.getenv("ARXIV_CATEGORIES", "cs.AI,cs.LG,cs.CL,cs.CV").split(",")
-]
-ARXIV_MAX_RESULTS = int(os.getenv("ARXIV_MAX_RESULTS", "500"))
-
-# ── Fetch Stop Condition ─────────────────────────────────────
-FETCH_LOOKBACK_DAYS = int(os.getenv("FETCH_LOOKBACK_DAYS", "1"))
-
 # ── Skills ───────────────────────────────────────────────────
 SKILLS_DIR = PROJECT_ROOT / "skills"
