@@ -1,332 +1,408 @@
 ---
 name: torch-liquidation-bot
-description: Read-only lending market scanner for Torch Market on Solana. No wallet required. Scans lending markets and displays rates, LTV thresholds, treasury balances, and active loan counts. Requires only an RPC endpoint (RPC_URL). Optional MINT and LOG_LEVEL parameters can be provided to tune scope of the tool.
+version: "3.0.2"
+description: Autonomous vault-based liquidation keeper for Torch Market lending on Solana. Scans all migrated tokens for underwater loan positions (LTV > 65%), builds and executes liquidation transactions through a Torch Vault, and collects a 10% collateral bonus. The agent keypair is generated in-process -- disposable, holds nothing of value. All SOL and collateral tokens route through the vault. The human principal creates the vault, funds it, links the agent, and retains full control. Built on torchsdk v3.2.3 and the Torch Market protocol.
 license: MIT
 disable-model-invocation: true
+requires:
+  env:
+    - SOLANA_RPC_URL
+    - VAULT_CREATOR
 metadata:
   openclaw:
     requires:
       env:
-        - RPC_URL
+        - SOLANA_RPC_URL
+        - VAULT_CREATOR
+    primaryEnv: SOLANA_RPC_URL
     install:
       - id: npm-torch-liquidation-bot
         kind: npm
-        package: torch-liquidation-bot@2.0.8
-        flags: ["--ignore-scripts"]
-        bins: ["torch-liquidation-bot"]
-        label: "Install torch-liquidation-bot (npm, optional -- source is bundled in lib/bot/)"
+        package: torch-liquidation-bot@^3.0.2
+        flags: []
+        label: "Install Torch Liquidation Bot (npm, optional -- SDK is bundled in lib/torchsdk/ and bot source is bundled under lib/kit on clawhub)"
   author: torch-market
-  version: "2.1.2"
-  clawhub: https://clawhub.ai/mrsirg97-rgb/torchliquidationbot
-  github: https://github.com/mrsirg97-rgb/torch-liquidation-bot-ro
-  npm: https://www.npmjs.com/package/torch-liquidation-bot
-  sdk: https://github.com/mrsirg97-rgb/torchsdk
-  agentkit: https://github.com/mrsirg97-rgb/solana-agent-kit-torch-market
-  npm-torchsdk: https://www.npmjs.com/package/torchsdk
-  npm-agentkit: https://www.npmjs.com/package/solana-agent-kit-torch-market
-compatibility: Requires Node.js, @solana/web3.js (npm), and a Solana RPC endpoint (RPC_URL). Only read-only info mode is available -- no wallet loaded, no signing, no state changes. All wallet-dependent functionality was removed in v2.0.0. The bot source is bundled in lib/bot/ and torchsdk (v2.0.0) is bundled in lib/torchsdk/, stripped to just the methods utilized by lib/bot/. The only external npm dependency is @solana/web3.js. Also available via npm and GitHub.
+  version: "3.0.2"
+  clawhub: https://clawhub.ai/mrsirg97-rgb/torch-liquidation-bot
+  kit-source: https://github.com/mrsirg97-rgb/torch-liquidation-kit
+  website: https://torch.market
+  program-id: 8hbUkonssSEEtkqzwM7ZcZrD9evacM92TcWSooVF4BeT
+  keywords:
+    - solana
+    - defi
+    - liquidation
+    - liquidation-bot
+    - liquidation-keeper
+    - collateral-lending
+    - vault-custody
+    - ai-agents
+    - agent-wallet
+    - agent-safety
+    - treasury-lending
+    - bonding-curve
+    - fair-launch
+    - token-2022
+    - raydium
+    - community-treasury
+    - protocol-rewards
+    - solana-agent-kit
+    - escrow
+    - anchor
+    - pda
+    - on-chain
+    - autonomous-agent
+    - keeper-bot
+    - torch-market
+  categories:
+    - solana-protocols
+    - defi-primitives
+    - lending-markets
+    - agent-infrastructure
+    - custody-solutions
+    - liquidation-keepers
+compatibility: Requires SOLANA_RPC_URL (HTTPS Solana RPC endpoint) and VAULT_CREATOR (vault creator pubkey) as environment variables. SOLANA_PRIVATE_KEY is optional -- the bot generates a fresh disposable keypair in-process if not provided. The agent wallet holds nothing of value (~0.01 SOL for gas). All liquidation proceeds (collateral tokens) route to the vault. The vault can be created and funded entirely by the human principal. The Torch SDK is bundled in lib/torchsdk/ -- all source included for full auditability. No API server dependency.
 ---
 
-# Torch Liquidation Bot — v2.1.2 (Read-Only)
+# Torch Liquidation Bot
 
-Read-only lending market scanner for [Torch Market](https://torch.market) on Solana. No wallet required. Only an RPC endpoint is needed.
+You're here because you want to run a liquidation keeper on Torch Market -- and you want to do it safely.
 
-## v2.0.0 Breaking Change — Read-Only Only
+Every migrated token on Torch has a built-in lending market. Holders lock tokens as collateral and borrow SOL from the community treasury (up to 50% LTV, 2% weekly interest). When a loan's LTV crosses 65%, it becomes liquidatable. Anyone can liquidate it and collect a **10% bonus** on the collateral value.
 
-**All wallet-dependent code was removed as of v2.0.0.**
+That's where this bot comes in.
 
-The entry point (`index.ts`) imports only read-only SDK functions. There is no wallet, keypair, signing, or transaction code anywhere in the source tree. There is no `WALLET` env var to set, no `MODE` to switch, no `Keypair` in the import graph. The only mode is read-only info.
+It scans every migrated token's lending market, checks every borrower's loan position, and when it finds one that's underwater -- it liquidates it through your vault. The collateral tokens go to your vault ATA. The SOL cost comes from your vault. The agent wallet that signs the transaction holds nothing.
 
-**What was removed:**
+**This is not a read-only scanner.** This is a fully operational keeper that generates its own keypair, verifies vault linkage, and executes liquidation transactions autonomously in a continuous loop.
 
-- `bot` mode (liquidation execution)
-- `watch` mode (loan health monitoring + auto-repay)
-- `loadWallet()` / `loadConfig()` (keypair decoding)
-- All `sendAndConfirmTransaction` / `buildRepayTransaction` / `buildLiquidateTransaction` / `confirmTransaction` calls
-- All SAID Protocol write operations (`confirmTransaction` for reputation)
-- All wallet-dependent source files (`liquidator.ts`, `monitor.ts`, `wallet-profiler.ts`, `risk-scorer.ts`, `scanner.ts`, `logger.ts`)
-- Unused bot-level dependencies (`bs58`). Note: `@coral-xyz/anchor` and `@solana/spl-token` were removed from the bot's direct `package.json` but remain as transitive dependencies of torchsdk (used for on-chain account deserialization and ATA address derivation)
-
-The v1.x code exists only in the git history of the original repository.
-
-**Why:**
-
-The skill's direct handling of a Solana private key via the `WALLET` environment variable and its interaction with the external SAID Protocol API presented a significant attack surface. While the code itself was audited and no malicious behavior was found, the inherent risk of providing a private key and relying on an external reputation API warranted a conservative approach. Read-only mode eliminates this risk entirely — no key is ever loaded, decoded, or held in memory.
-
-## What This Skill Does
-
-This skill scans lending markets on Torch Market, a fair-launch DAO launchpad on Solana. Every migrated token on Torch has a built-in lending market where holders can borrow SOL against their tokens.
-
-The skill is a **read-only dashboard**. It discovers migrated tokens and displays their lending parameters — interest rates, LTV thresholds, treasury balances, and active loan counts. No wallet is loaded. No state changes occur. No transactions are built or signed.
+---
 
 ## How It Works
 
 ```
-connect to Solana RPC
-         |
-    discover migrated tokens (getTokens)
-         |
-    for each token:
-         |
-    read lending parameters (getLendingInfo)
-         |
-    display: rates, thresholds, treasury balance, loan count
+┌─────────────────────────────────────────────────────────┐
+│                  LIQUIDATION LOOP                         │
+│                                                          │
+│  1. Discover migrated tokens (getTokens)                 │
+│  2. For each token, check lending state (getLendingInfo)  │
+│  3. Skip tokens with no active loans                     │
+│  4. Get token holders (getHolders)                       │
+│  5. For each holder, check loan position (getLoanPosition)│
+│  6. If health === 'liquidatable':                        │
+│     → buildLiquidateTransaction(vault=creator)           │
+│     → sign with agent keypair                            │
+│     → submit and confirm                                 │
+│  7. Sleep SCAN_INTERVAL_MS, repeat                       │
+│                                                          │
+│  All SOL comes from vault. All collateral goes to vault. │
+│  Agent wallet holds nothing. Vault is the boundary.      │
+└─────────────────────────────────────────────────────────┘
 ```
 
-### One Mode
+### The Agent Keypair
 
-| Mode | Purpose | Wallet | State Changes |
-|------|---------|--------|---------------|
-| `info` (only) | Display lending parameters for a token or all tokens | not required | none (read-only) |
+The bot generates a fresh `Keypair` in-process on every startup. No private key file. No environment variable (unless you want to provide one). The keypair is disposable -- it signs transactions but holds nothing of value.
+
+On first run, the bot checks if this keypair is linked to your vault. If not, it prints the exact SDK call you need to link it:
+
+```
+--- ACTION REQUIRED ---
+agent wallet is NOT linked to the vault.
+link it by running (from your authority wallet):
+
+  buildLinkWalletTransaction(connection, {
+    authority: "<your-authority-pubkey>",
+    vault_creator: "<your-vault-creator>",
+    wallet_to_link: "<agent-pubkey>"
+  })
+
+then restart the bot.
+-----------------------
+```
+
+Link it from your authority wallet (hardware wallet, multisig, whatever you use). The agent never needs the authority's key. The authority never needs the agent's key. They share a vault, not keys.
+
+### The Vault
+
+This is the same Torch Vault from the full Torch Market protocol. It holds all assets -- SOL and tokens. The agent is a disposable controller.
+
+When the bot liquidates a position:
+- **SOL cost** comes from the vault (the liquidation payment to cover the borrower's debt)
+- **Collateral tokens** go to the vault's associated token account (ATA)
+- **10% bonus** means the collateral received is worth 10% more than the SOL spent
+
+The human principal retains full control:
+- `withdrawVault()` — pull SOL at any time
+- `withdrawTokens(mint)` — pull collateral tokens at any time
+- `unlinkWallet(agent)` — revoke agent access instantly
+
+If the agent keypair is compromised, the attacker gets dust and vault access that you revoke in one transaction.
+
+---
+
+## Getting Started
+
+### 1. Install
+
+```bash
+npm install torch-liquidation-bot@3.0.2
+```
+
+Or use the bundled source from ClawHub — the Torch SDK is included in `lib/torchsdk/` and the bot source is in `lib/kit/`.
+
+### 2. Create and Fund a Vault (Human Principal)
+
+From your authority wallet:
+
+```typescript
+import { Connection } from "@solana/web3.js";
+import {
+  buildCreateVaultTransaction,
+  buildDepositVaultTransaction,
+} from "./lib/torchsdk/index.js";
+
+const connection = new Connection(process.env.SOLANA_RPC_URL);
+
+// Create vault
+const { transaction: createTx } = await buildCreateVaultTransaction(connection, {
+  creator: authorityPubkey,
+});
+// sign and submit with authority wallet...
+
+// Fund vault with SOL for liquidations
+const { transaction: depositTx } = await buildDepositVaultTransaction(connection, {
+  depositor: authorityPubkey,
+  vault_creator: authorityPubkey,
+  amount_sol: 5_000_000_000, // 5 SOL
+});
+// sign and submit with authority wallet...
+```
+
+### 3. Run the Bot
+
+```bash
+VAULT_CREATOR=<your-vault-creator-pubkey> SOLANA_RPC_URL=<rpc-url> npx torch-liquidation-bot
+```
+
+On first run, the bot prints the agent keypair and instructions to link it. Link it from your authority wallet, then restart.
+
+### 4. Configuration
+
+| Variable | Required | Default | Description |
+|----------|----------|---------|-------------|
+| `SOLANA_RPC_URL` | **Yes** | -- | Solana RPC endpoint (HTTPS). Fallback: `RPC_URL` |
+| `VAULT_CREATOR` | **Yes** | -- | Vault creator pubkey |
+| `SOLANA_PRIVATE_KEY` | No | -- | Disposable controller keypair (base58 or JSON byte array). If omitted, generates fresh keypair on startup (recommended) |
+| `SCAN_INTERVAL_MS` | No | `30000` | Milliseconds between scan cycles (min 5000) |
+| `LOG_LEVEL` | No | `info` | `debug`, `info`, `warn`, `error` |
+
+---
 
 ## Architecture
 
 ```
 packages/bot/src/
-├── types.ts    — ReadOnlyConfig interface
-├── config.ts   — loadReadOnlyConfig()
-├── utils.ts    — sol() + bpsToPercent() helpers
-└── index.ts    — read-only entry point
+├── index.ts    — entry point: keypair generation, vault verification, scan loop
+├── config.ts   — loadConfig(): validates SOLANA_RPC_URL, VAULT_CREATOR, SOLANA_PRIVATE_KEY, SCAN_INTERVAL_MS, LOG_LEVEL
+├── types.ts    — BotConfig, LogLevel interfaces
+└── utils.ts    — sol(), bpsToPercent(), createLogger()
 ```
 
-4 files. ~60 lines of source. No wallet code. The bot source is bundled in `lib/bot/` and torchsdk (v2.0.0) is bundled in `lib/torchsdk/`, stripped to just the methods utilized by `lib/bot/`.
+The bot is ~190 lines of TypeScript. It does one thing: find underwater loans and liquidate them through the vault.
 
-Also available on GitHub at [torch-liquidation-bot-ro](https://github.com/mrsirg97-rgb/torch-liquidation-bot-ro).
+### Dependencies
 
-## Network & Permissions
+| Package | Version | Purpose |
+|---------|---------|---------|
+| `@solana/web3.js` | 1.98.4 | Solana RPC, keypair, transaction |
+| `torchsdk` | 3.2.3 | Token queries, lending state, liquidation builder, vault queries |
 
-- **Read-only only** -- no wallet is loaded, no keypair is decoded, no signing occurs, no state changes. Only `RPC_URL` is required.
-- **Outbound connections:** Solana RPC (via `@solana/web3.js`), Irys gateway (metadata fetch for `getToken`), CoinGecko (SOL/USD price for `getToken`). All read-only HTTP GETs. `RPC_URL` is not forwarded to any non-RPC request. No SAID Protocol API calls, no write endpoints. SAID badge URLs appear as strings in token detail responses but are not fetched by the SDK.
-- **No private key handling** -- `Keypair` is not imported. `bs58` is not a dependency. There is no code that could decode, hold, or transmit a private key.
-- **Source bundled in skill** -- bot source in `lib/bot/`, torchsdk (v2.0.0) in `lib/torchsdk/` stripped to just the methods utilized by `lib/bot/`. Also available via npm: `npm install torch-liquidation-bot@2.0.8 --ignore-scripts`.
-- **Runtime npm dependencies** -- `@solana/web3.js`, `@coral-xyz/anchor` (BorshCoder for on-chain account deserialization), and `@solana/spl-token` (ATA address derivation). These were removed from the bot's direct `package.json` in v2.0.0 but remain as transitive dependencies of the bundled torchsdk.
-- **RPC_URL sensitivity** -- if your RPC provider embeds an API key in the endpoint URL, that key is used only for read-only RPC calls and is never logged, transmitted externally, or stored. Use a read-only key or a public endpoint if this is a concern.
-- **Autonomous invocation disabled** -- `disable-model-invocation: true` is set as a top-level frontmatter field (OpenClaw extension), ensuring the registry enforces it. An agent cannot invoke this skill autonomously — it requires explicit user action. This is a deliberate choice: because the skill depends on npm-distributed code, autonomous execution should not be permitted by default.
-- **Required env declared via OpenClaw** -- `RPC_URL` is declared in `metadata.openclaw.requires.env`, which the registry uses to validate environment before invocation. Optional variables (`MINT`, `LOG_LEVEL`) have no frontmatter equivalent and are documented in the Environment Variables table below.
-
-## Supply Chain Verification
-
-The bot source (`lib/bot/`) and torchsdk (`lib/torchsdk/`, stripped to utilized methods) are bundled in this skill package. You can audit them directly. The only external dependency is `@solana/web3.js`.
-
-If you prefer to use the npm distribution instead, verify the package yourself:
-
-### 1. Check for lifecycle scripts (should be empty)
-
-```bash
-npm pkg get scripts.preinstall scripts.postinstall scripts.prepare --registry https://registry.npmjs.org/torch-liquidation-bot
-```
-
-Or after install:
-
-```bash
-cat node_modules/torch-liquidation-bot/package.json | grep -E '"(preinstall|postinstall|prepare)"'
-```
-
-Expected: no output (no lifecycle scripts).
-
-### 2. Audit dependencies
-
-```bash
-npm audit --omit=dev torch-liquidation-bot@2.0.8
-```
-
-### 3. Compare published package to GitHub source
-
-```bash
-# download the published tarball
-npm pack torch-liquidation-bot@2.0.8
-
-# extract and diff against the repo
-tar -xzf torch-liquidation-bot-2.0.8.tgz
-diff -r package/dist/ <(cd /path/to/torch-liquidation-bot-ro && pnpm build && echo packages/bot/dist/)
-```
-
-### 4. Verify the bundled code contains no wallet code
-
-```bash
-grep -rn "Keypair\|bs58\|sendAndConfirm\|signTransaction\|secretKey\|privateKey" lib/bot/ lib/torchsdk/
-```
-
-Expected: no matches. The bundled torchsdk has been stripped to just the methods utilized by `lib/bot/` -- no transaction builders, no signing code.
+Two runtime dependencies. Both pinned to exact versions. No `^` or `~` ranges.
 
 ---
 
-## Setup
+## Vault Safety Model
 
-### Install
+The same seven guarantees from the Torch Market vault apply here:
 
-The bot source is bundled in `lib/bot/` and torchsdk (v2.0.0) in `lib/torchsdk/`, stripped to just the utilized methods. The only npm dependency required is `@solana/web3.js`.
+| Property | Guarantee |
+|----------|-----------|
+| **Full custody** | Vault holds all SOL and all collateral tokens. Agent wallet holds nothing. |
+| **Closed loop** | Liquidation SOL comes from vault, collateral tokens go to vault. No leakage to agent. |
+| **Authority separation** | Creator (immutable PDA seed) vs Authority (transferable admin) vs Controller (disposable signer). |
+| **One link per wallet** | Agent can only belong to one vault. PDA uniqueness enforces this on-chain. |
+| **Permissionless deposits** | Anyone can top up the vault. Hardware wallet deposits, agent liquidates. |
+| **Instant revocation** | Authority can unlink the agent at any time. One transaction. |
+| **Authority-only withdrawals** | Only the vault authority can withdraw SOL or tokens. The agent cannot extract value. |
 
-Alternatively, install everything via npm:
+### The Closed Economic Loop for Liquidations
 
-```bash
-npm install torch-liquidation-bot@2.0.8 --ignore-scripts
-```
+| Direction | Flow |
+|-----------|------|
+| **SOL out** | Vault → Borrower's treasury debt (covers the loan) |
+| **Tokens in** | Borrower's collateral → Vault ATA (at 10% discount) |
+| **Net** | Vault receives collateral worth 110% of SOL spent |
 
-Version pinning (`@2.0.8`) prevents silent upgrades. `--ignore-scripts` prevents any lifecycle scripts from executing during install (defense-in-depth — this package has no lifecycle scripts, but the flag ensures that remains true).
+The bot is profitable by design — every successful liquidation returns more value than it costs. The profit accumulates in the vault. The authority withdraws when ready.
 
-### Environment Variables
+---
 
-| Variable | Required | Default | Description |
-|----------|----------|---------|-------------|
-| `RPC_URL` | yes | -- | Solana RPC endpoint. If your provider embeds an API key in the URL, use a read-only key or a public endpoint. |
-| `MINT` | no | -- | Token mint address. If set, shows info for that token. If omitted, shows all migrated tokens. |
-| `LOG_LEVEL` | no | `info` | `debug`, `info`, `warn`, or `error` |
-
-That's it. No `WALLET`, no `MODE`, no bot-specific config.
-
-### Run
-
-After installing with `npm install`, run the locally-installed package:
-
-```bash
-# show lending info for all migrated tokens
-RPC_URL=<rpc> npx torch-liquidation-bot
-
-# show lending info for a specific token
-MINT=<mint> RPC_URL=<rpc> npx torch-liquidation-bot
-```
-
-**Note:** `npx` here resolves to the locally-installed copy (installed in the step above). If the package is not installed locally, `npx` will fetch it from npm at runtime — review the source on [GitHub](https://github.com/mrsirg97-rgb/torch-liquidation-bot-ro) before running.
-
-### Programmatic Usage
-
-```typescript
-import { loadReadOnlyConfig } from 'torch-liquidation-bot/config'
-import { Connection } from '@solana/web3.js'
-import { getTokens, getLendingInfo } from 'torchsdk'
-
-const config = loadReadOnlyConfig()
-const connection = new Connection(config.rpcUrl, 'confirmed')
-
-const { tokens } = await getTokens(connection, {
-  status: 'migrated',
-  sort: 'volume',
-  limit: 50,
-})
-
-for (const t of tokens) {
-  const lending = await getLendingInfo(connection, t.mint)
-  console.log(`${t.symbol}: ${lending.active_loans} active loans`)
-}
-```
-
-## SDK Functions Used
-
-Only read-only [torchsdk](https://github.com/mrsirg97-rgb/torchsdk) functions are imported:
-
-| Function | Purpose |
-|----------|---------|
-| `getTokens(connection, params)` | Discover migrated tokens |
-| `getToken(connection, mint)` | Get token price and metadata |
-| `getLendingInfo(connection, mint)` | Get lending parameters and active loan count |
-
-## Key Types
-
-```typescript
-interface ReadOnlyConfig {
-  rpcUrl: string
-  logLevel: LogLevel
-}
-```
-
-## Torch Lending Parameters
+## Lending Parameters
 
 | Parameter | Value |
 |-----------|-------|
 | Max LTV | 50% |
-| Liquidation threshold | 65% LTV |
-| Interest rate | 2% per epoch (~7 days) |
-| Liquidation bonus | 10% of collateral value |
-| Treasury utilization cap | 50% |
-| Min borrow | 0.1 SOL |
+| Liquidation Threshold | 65% |
+| Interest Rate | 2% per epoch (~weekly) |
+| Liquidation Bonus | 10% |
+| Utilization Cap | 50% of treasury |
+| Min Borrow | 0.1 SOL |
 
-## Simulation Results — Read-Only (Surfpool)
+Collateral value is calculated from Raydium pool reserves. The 1% Token-2022 transfer fee applies on collateral deposits and withdrawals (~2% round-trip).
 
-The read-only test was run against a Surfpool mainnet fork. No wallet was loaded. No transactions were signed.
+### When Liquidations Happen
+
+A loan becomes liquidatable when its LTV exceeds 65%. This happens when:
+- The token price drops (collateral value decreases relative to debt)
+- Interest accrues (debt grows at 2% per epoch)
+- A combination of both
+
+The bot checks `position.health === 'liquidatable'` — the SDK calculates LTV from on-chain Raydium reserves and the loan's accrued debt.
+
+---
+
+## SDK Functions Used
+
+The bot uses a focused subset of the Torch SDK:
+
+| Function | Purpose |
+|----------|---------|
+| `getTokens(connection, { status: 'migrated' })` | Discover all tokens with active lending markets |
+| `getLendingInfo(connection, mint)` | Check if a token has active loans |
+| `getHolders(connection, mint)` | Get token holders (potential borrowers) |
+| `getLoanPosition(connection, mint, wallet)` | Check a holder's loan health |
+| `getVault(connection, creator)` | Verify vault exists on startup |
+| `getVaultForWallet(connection, wallet)` | Verify agent is linked to vault |
+| `buildLiquidateTransaction(connection, params)` | Build the liquidation transaction (vault-routed) |
+| `confirmTransaction(connection, sig, wallet)` | Confirm transaction on-chain via RPC (verifies signer, checks Torch instructions) |
+
+### buildLiquidateTransaction Parameters
+
+```typescript
+const { transaction, message } = await buildLiquidateTransaction(connection, {
+  mint: token.mint,           // token with the underwater loan
+  liquidator: agentPubkey,    // agent wallet (signer)
+  borrower: holderAddress,    // borrower being liquidated
+  vault: vaultCreator,        // vault creator pubkey (SOL from vault, tokens to vault)
+});
+```
+
+---
+
+## Log Output
 
 ```
-============================================================
-READ-ONLY TEST — Surfpool Mainnet Fork
-============================================================
-[16:00:21]   ✓ connection — solana-core 3.1.6
-[16:00:21]   ✓ getTokens — found 8 migrated tokens
-    BTEST      | mint=wokxaeFZ...
-    BTEST      | mint=8FqFw5fD...
-    LEND       | mint=AD1kat3L...
-    LEND       | mint=G6yzUvS7...
-    BTEST      | mint=GLim6QRX...
-    LEND       | mint=76TEs99p...
-    BTEST      | mint=FjGHamUF...
-    LEND       | mint=9KNunLmY...
-[16:01:43]   ✓ getLendingInfo — 8 tokens with lending data
-    BTEST      | rate=2.00%   | loans=null | avail=32.3043 SOL
-    LEND       | rate=2.00%   | loans=null | avail=32.3043 SOL
-    ...
-[16:02:34]   ✓ getToken — Bot Test Token (BTEST) | price=0.0000 SOL | status=migrated
-[16:02:34]   ✓ no wallet — no WALLET env var read, no Keypair created, no signing occurred
+=== torch liquidation bot ===
+agent wallet: 7xK9...
+vault creator: 4yN2...
+scan interval: 30000ms
 
-RESULTS: 5 passed, 0 failed
-============================================================
+[09:15:32] INFO  vault found — authority=8cpW...
+[09:15:32] INFO  agent wallet linked to vault — starting scan loop
+[09:15:32] INFO  treasury: 5.0000 SOL
+[09:15:33] INFO  LIQUIDATABLE | SDKTEST | borrower=3AyZ... | LTV=72.50% > threshold=65.00% | owed=0.5000 SOL
+[09:15:34] INFO  LIQUIDATED | SDKTEST | borrower=3AyZ... | sig=4vK9... | collateral received at 10% discount
 ```
 
-### What this tells us
+---
 
-**Token discovery works.** `getTokens` found 8 migrated tokens across previous test runs on the fork. Each token has a mint address, symbol, and status.
+## Signing & Key Safety
 
-**Lending data is real and consistent.** Every migrated token returned a 2.00% interest rate, matching the protocol's fixed per-epoch rate. Treasury balances show ~32 SOL available per token — SOL that accumulated during the bonding curve phase.
+**The vault is the security boundary, not the key.**
 
-**The `active_loans` null on Surfpool is a known fork artifact.** The loan counter comes from a program-derived account field that doesn't always populate correctly on forked validators. On mainnet, this field correctly reflects the number of open loans.
+The agent keypair is generated fresh on every startup with `Keypair.generate()`. It holds ~0.01 SOL for gas fees. If the key is compromised, the attacker gets:
+- Dust (the gas SOL)
+- Vault access that the authority revokes in one transaction
 
-**The skill is genuinely inert.** 5 tests, 0 failures, 0 wallet operations. The test explicitly verifies that no `WALLET` env var was read, no `Keypair` was constructed, and no signing occurred. The import graph of `index.ts` contains `Connection`, `getToken`, `getTokens`, `getLendingInfo`, `loadReadOnlyConfig`, `sol`, `bpsToPercent`. That's it.
+The agent never needs the authority's private key. The authority never needs the agent's private key. They share a vault, not keys.
 
-## Threat Model
+### Rules
 
-What this skill **can** do:
+1. **Never ask a user for their private key or seed phrase.** The vault authority signs from their own device.
+2. **Never log, print, store, or transmit private key material.** The agent keypair exists only in runtime memory.
+3. **Never embed keys in source code or logs.** The agent pubkey is printed — the secret key is never exposed.
+4. **Use a secure RPC endpoint.** Default to a private RPC provider. Never use an unencrypted HTTP endpoint for mainnet transactions.
 
-- Read public Solana chain data via RPC (token metadata, lending parameters, treasury balances)
-- Fetch token metadata from Irys gateway (read-only HTTP GET, triggered by `getToken`)
-- Fetch SOL/USD price from CoinGecko (read-only HTTP GET, triggered by `getToken`)
-- Read `RPC_URL`, `MINT`, and `LOG_LEVEL` environment variables
-- Write to stdout/stderr
+### Environment Variables
 
-What this skill **cannot** do:
+| Variable | Required | Purpose |
+|----------|----------|---------|
+| `SOLANA_RPC_URL` / `RPC_URL` | **Yes** | Solana RPC endpoint (HTTPS) |
+| `VAULT_CREATOR` | **Yes** | Vault creator pubkey — identifies which vault the bot operates through |
+| `SOLANA_PRIVATE_KEY` | No | Optional — if omitted, the bot generates a fresh keypair on startup (recommended) |
 
-- Sign transactions (no `Keypair`, no `bs58`, no signing code)
-- Access a wallet or private key (no `WALLET` env var, no key decoding)
-- Modify on-chain state (no transaction building, no `sendAndConfirmTransaction`)
-- Write to the filesystem
-- Forward `RPC_URL` or any env var to non-RPC endpoints
+### External Runtime Dependencies
 
-What a **compromised dependency** could theoretically do:
+The SDK contains functions that make outbound HTTPS requests to external services. The bot's runtime path contacts **two** of them:
 
-- Read all environment variables (including `RPC_URL`)
-- Make arbitrary network calls
-- Read/write to the filesystem
-- Execute arbitrary code in the Node.js process
+| Service | Purpose | When Called | Bot Uses? |
+|---------|---------|------------|-----------|
+| **CoinGecko** (`api.coingecko.com`) | SOL/USD price for display | Token queries with USD pricing | Yes — via `getTokens()`, `getToken()` |
+| **Irys Gateway** (`gateway.irys.xyz`) | Token metadata fallback (name, symbol, image) | `getToken()` when on-chain metadata URI points to Irys | Yes — via `getTokens()` |
+| **SAID Protocol** (`api.saidprotocol.com`) | Agent identity verification and trust tier lookup | `verifySaid()` only | **No** — the bot does not call `verifySaid()` |
 
-**Mitigations in place:**
+**`confirmTransaction()` does NOT contact SAID.** Despite living in the SDK's `said.js` module, it only calls `connection.getParsedTransaction()` (Solana RPC) to verify the transaction succeeded on-chain and determine the event type. No data is sent to any external service.
 
-- Bot source in `lib/bot/`, torchsdk (v2.0.0) in `lib/torchsdk/` stripped to just the utilized methods -- both auditable on-disk
-- Only 1 external npm dependency (`@solana/web3.js`) -- well-known, widely audited, maintained by Solana Labs
-- `--ignore-scripts` installation prevents lifecycle script execution
-- Version pinning in install command (`@2.0.8`) prevents silent upgrades
-- `disable-model-invocation: true` (top-level frontmatter) prevents autonomous agent execution
-- Source is public and auditable on GitHub
-- Use a public or read-only RPC endpoint to limit credential exposure
+No credentials are sent to CoinGecko or Irys. All requests are read-only GET. If either service is unreachable, the SDK degrades gracefully. No private key material is ever transmitted to any external endpoint.
+
+---
+
+## Testing
+
+Requires [Surfpool](https://github.com/nicholasgasior/surfpool) running a mainnet fork:
+
+```bash
+surfpool start --network mainnet --no-tui
+pnpm test
+```
+
+**Test result:** 7 passed, 1 informational (Surfpool RPC limitation on `getTokenLargestAccounts` — works on mainnet).
+
+| Test | What It Validates |
+|------|-------------------|
+| Connection | RPC reachable |
+| getTokens | Discovers migrated tokens |
+| getLendingInfo | Reads lending state for all tokens |
+| getHolders + getLoanPosition | Checks holder positions |
+| getToken | Token metadata, price, status |
+| getVaultForWallet | Vault link returns null for unlinked wallet |
+| In-process keypair | No external key required |
+
+---
+
+## Error Codes
+
+- `VAULT_NOT_FOUND`: No vault exists for this creator
+- `WALLET_NOT_LINKED`: Agent wallet is not linked to the vault
+- `NOT_LIQUIDATABLE`: Position LTV below liquidation threshold
+- `NO_ACTIVE_LOAN`: No open loan for this wallet/token
+- `INVALID_MINT`: Token not found
+
+---
 
 ## Links
 
-- Bot source (bundled): `lib/bot/` -- **start here**
-- torchsdk v2.0.0 (bundled): `lib/torchsdk/` -- **stripped to utilized methods**
-- Source (GitHub): [github.com/mrsirg97-rgb/torch-liquidation-bot-ro](https://github.com/mrsirg97-rgb/torch-liquidation-bot-ro)
-- npm: [npmjs.com/package/torch-liquidation-bot](https://www.npmjs.com/package/torch-liquidation-bot)
-- Torch SDK (GitHub): [github.com/mrsirg97-rgb/torchsdk](https://github.com/mrsirg97-rgb/torchsdk)
+- Liquidation Kit (source): [github.com/mrsirg97-rgb/torch-liquidation-kit](https://github.com/mrsirg97-rgb/torch-liquidation-kit)
+- Liquidation Bot (npm): [npmjs.com/package/torch-liquidation-bot](https://www.npmjs.com/package/torch-liquidation-bot)
+- Torch SDK (bundled): `lib/torchsdk/` -- included in this skill
+- Torch SDK (source): [github.com/mrsirg97-rgb/torchsdk](https://github.com/mrsirg97-rgb/torchsdk)
 - Torch SDK (npm): [npmjs.com/package/torchsdk](https://www.npmjs.com/package/torchsdk)
-- Torch Market: [torch.market](https://torch.market)
-- ClawHub: [clawhub.ai/mrsirg97-rgb/torchliquidationbot](https://clawhub.ai/mrsirg97-rgb/torchliquidationbot)
+- Torch Market (protocol skill): [clawhub.ai/mrsirg97-rgb/torchmarket](https://clawhub.ai/mrsirg97-rgb/torchmarket)
+- Whitepaper: [torch.market/whitepaper.md](https://torch.market/whitepaper.md)
+- Security Audit: [torch.market/audit.md](https://torch.market/audit.md)
+- Website: [torch.market](https://torch.market)
 - Program ID: `8hbUkonssSEEtkqzwM7ZcZrD9evacM92TcWSooVF4BeT`
 
-**NOTE**
+---
 
-A security audit of the v1.x codebase is provided in `audit.md`. That audit covers the wallet-handling and transaction-signing code that has since been removed. v2.0.0+ contains only read-only code — the audited wallet code exists only in the git history of the original repository.
+This bot exists because Torch lending markets need keepers. When loans go underwater and nobody liquidates them, the treasury takes the loss. Active liquidation keepers protect treasury health and earn a profit doing it. The vault makes it safe — all value stays in the escrow, all risk is bounded, and the human principal keeps the keys.
