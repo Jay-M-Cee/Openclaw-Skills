@@ -3,11 +3,16 @@
   "slug": "clawsec-suite",
   "displayName": "clawsec-suite",
   "latest": {
-    "version": "0.0.9",
-    "publishedAt": 1770619196118,
-    "commit": "https://github.com/openclaw/skills/commit/5d647a0eed8a5e2e1e1424fc4149a6c42bb8a4c0"
+    "version": "0.0.10",
+    "publishedAt": 1770918413795,
+    "commit": null
   },
   "history": [
+    {
+      "version": "0.0.9",
+      "publishedAt": 1770619196118,
+      "commit": "https://github.com/openclaw/skills/commit/5d647a0eed8a5e2e1e1424fc4149a6c42bb8a4c0"
+    },
     {
       "version": "0.0.8",
       "publishedAt": 1770586770789,
