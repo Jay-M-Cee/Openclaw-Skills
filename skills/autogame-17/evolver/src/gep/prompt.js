@@ -76,25 +76,77 @@ function truncateContext(text, maxLength = 20000) {
 
 /**
  * Strict schema definitions for the prompt to reduce drift.
- * UPDATED: 2026-02-12 (Protocol Drift Fix)
+ * UPDATED: 2026-02-12 (Protocol Drift Fix v2 - Strict JSON)
  */
 const SCHEMA_DEFINITIONS = `
+━━━━━━━━━━━━━━━━━━━━━━
+I. Mandatory Evolution Object Model (Output EXACTLY these 5 objects)
+━━━━━━━━━━━━━━━━━━━━━━
+
+Output separate JSON objects. DO NOT wrap in a single array. DO NOT use markdown code blocks (like \`\`\`json).
+Missing any object = PROTOCOL FAILURE.
+STRICT JSON ONLY. NO CHITCHAT.
+
 0. Mutation (The Trigger) - MUST BE FIRST
-   { "type": "Mutation", "id": "mut_<timestamp>", "category": "repair|optimize|innovate", "trigger_signals": ["<signal_string>"], "target": "<module_or_gene_id>", "expected_effect": "<outcome_description>", "risk_level": "low|medium|high" }
+   {
+     "type": "Mutation",
+     "id": "mut_<timestamp>",
+     "category": "repair|optimize|innovate",
+     "trigger_signals": ["<signal_string>"],
+     "target": "<module_or_gene_id>",
+     "expected_effect": "<outcome_description>",
+     "risk_level": "low|medium|high",
+     "rationale": "<why_this_change_is_necessary>"
+   }
 
 1. PersonalityState (The Mood)
-   { "type": "PersonalityState", "rigor": 0.0-1.0, "creativity": 0.0-1.0, "verbosity": 0.0-1.0, "risk_tolerance": 0.0-1.0, "obedience": 0.0-1.0 }
+   {
+     "type": "PersonalityState",
+     "rigor": 0.0-1.0,
+     "creativity": 0.0-1.0,
+     "verbosity": 0.0-1.0,
+     "risk_tolerance": 0.0-1.0,
+     "obedience": 0.0-1.0
+   }
 
 2. EvolutionEvent (The Record)
-   { "type": "EvolutionEvent", "id": "evt_<timestamp>", "parent": <parent_evt_id|null>, "intent": "repair|optimize|innovate", "signals": ["<signal_string>"], "genes_used": ["<gene_id>"], "mutation_id": "<mut_id>", "personality_state": { ... }, "blast_radius": { "files": N, "lines": N }, "outcome": { "status": "success|failed", "score": 0.0-1.0 } }
+   {
+     "type": "EvolutionEvent",
+     "id": "evt_<timestamp>",
+     "parent": <parent_evt_id|null>,
+     "intent": "repair|optimize|innovate",
+     "signals": ["<signal_string>"],
+     "genes_used": ["<gene_id>"],
+     "mutation_id": "<mut_id>",
+     "personality_state": { ... },
+     "blast_radius": { "files": N, "lines": N },
+     "outcome": { "status": "success|failed", "score": 0.0-1.0 }
+   }
 
 3. Gene (The Knowledge)
    - Reuse/update existing ID if possible. Create new only if novel pattern.
-   { "type": "Gene", "id": "gene_<name>", "category": "repair|optimize|innovate", "signals_match": ["<pattern>"], "preconditions": ["<condition>"], "strategy": ["<step_1>"], "constraints": { "max_files": N, "forbidden_paths": [] }, "validation": ["<node_command>"] }
+   {
+     "type": "Gene",
+     "id": "gene_<name>",
+     "category": "repair|optimize|innovate",
+     "signals_match": ["<pattern>"],
+     "preconditions": ["<condition>"],
+     "strategy": ["<step_1>", "<step_2>"],
+     "constraints": { "max_files": N, "forbidden_paths": [] },
+     "validation": ["<node_command>"]
+   }
 
 4. Capsule (The Result)
    - Only on success. Reference Gene used.
-   { "type": "Capsule", "id": "capsule_<timestamp>", "trigger": ["<signal_string>"], "gene": "<gene_id>", "summary": "<one sentence summary>", "confidence": 0.0-1.0, "blast_radius": { "files": N, "lines": N } }
+   {
+     "type": "Capsule",
+     "id": "capsule_<timestamp>",
+     "trigger": ["<signal_string>"],
+     "gene": "<gene_id>",
+     "summary": "<one sentence summary>",
+     "confidence": 0.0-1.0,
+     "blast_radius": { "files": N, "lines": N }
+   }
 `.trim();
 
 function buildGepPrompt({
@@ -133,16 +185,17 @@ ADHERE TO THIS STRATEGY STRICTLY.
   // Strict Schema Injection
   const schemaSection = SCHEMA_DEFINITIONS.replace('<parent_evt_id|null>', parentValue);
 
+  // Reduce noise by filtering capabilityCandidatesPreview if too large
+  let capsPreview = capabilityCandidatesPreview || '(none)';
+  if (capsPreview.length > 5000) {
+      capsPreview = capsPreview.slice(0, 5000) + "\n...[TRUNCATED_CAPABILITIES]...";
+  }
+
   const basePrompt = `
 GEP — GENOME EVOLUTION PROTOCOL (v1.10.0 STRICT)${cycleLabel} [${nowIso}]
 
 You are a protocol-bound evolution engine. Compliance overrides optimality.
 
-━━━━━━━━━━━━━━━━━━━━━━
-I. Mandatory Evolution Object Model (Output EXACTLY these 5 objects)
-━━━━━━━━━━━━━━━━━━━━━━
-
-Output separate JSON objects. DO NOT wrap in a single array. Missing any = PROTOCOL FAILURE.
 ${schemaSection}
 
 ━━━━━━━━━━━━━━━━━━━━━━
@@ -162,14 +215,25 @@ PHILOSOPHY:
 - Automate Patterns: 3+ manual occurrences = tool.
 - Innovate > Maintain: 60% innovation.
 - Robustness: Fix recurring errors permanently.
-- Safety: Never delete protected files (MEMORY.md, SOUL.md).
-- Strictness: NO CHITCHAT. NO MARKDOWN WRAPPERS around JSON if possible.
+- Safety: NEVER delete core skill directories or protected files. Repair, don't destroy.
+- Blast Radius: Prefer small, reversible patches. Large-scale deletions are FORBIDDEN.
+- Strictness: NO CHITCHAT. NO MARKDOWN WRAPPERS around JSON. Output RAW JSON objects separated by newlines.
 
 CONSTRAINTS:
 - No \`exec\` for messaging (use feishu-post/card).
 - \`exec\` for background tasks allowed (log it).
 - New skills -> \`skills/<name>/\`.
 - Modify \`skills/evolver/\` only with rigor > 0.8.
+
+CRITICAL SAFETY (SYSTEM CRASH PREVENTION):
+- NEVER delete, empty, overwrite, or rm -rf ANY of these skill directories:
+  feishu-evolver-wrapper, feishu-common, feishu-post, feishu-card, feishu-doc,
+  common, clawhub, clawhub-batch-undelete, git-sync, evolver.
+- NEVER delete protected root files: MEMORY.md, SOUL.md, IDENTITY.md, AGENTS.md,
+  USER.md, HEARTBEAT.md, RECENT_EVENTS.md, TOOLS.md, openclaw.json, .env, package.json.
+- If a skill is broken, REPAIR it (fix the file). Do NOT delete and recreate.
+- NEVER run \`rm -rf\` on ANY directory inside skills/. Use targeted file edits only.
+- Violation of these rules triggers automatic rollback and marks the cycle as FAILED.
 
 COMMON FAILURE PATTERNS (AVOID THESE):
 - Omitted Mutation object (Must be first).
@@ -194,7 +258,7 @@ Context [Capsule Preview] (Reference for Past Success):
 ${capsulesPreview}
 
 Context [Capability Candidates]:
-${capabilityCandidatesPreview || '(none)'}
+${capsPreview}
 
 Context [Hub Matched Solution]:
 ${hubMatchedBlock || '(no hub match)'}
