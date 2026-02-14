@@ -33,7 +33,7 @@ exec { "command": "uname -s 2>/dev/null || echo Windows" }
 Three possible outcomes:
 - **Not installed** → go to Step 2 (fresh install)
 - **Installed, older version** → go to Step 3 (upgrade)
-- **Installed, already v0.8.0 or newer** → tell the user it's up to date and skip remaining steps
+- **Installed, already v0.9.2 or newer** → tell the user it's up to date and skip remaining steps
 
 To check the installed version:
 ```
@@ -94,7 +94,7 @@ exec { "command": "openclaw plugins install openclaw-plugin-vt-sentinel" }
 
 If this fails on Windows with `spawn EINVAL`, use the manual method:
 ```
-exec { "command": "cd %TEMP% && npm pack openclaw-plugin-vt-sentinel && mkdir %USERPROFILE%\\.openclaw\\extensions\\openclaw-plugin-vt-sentinel && tar xzf openclaw-plugin-vt-sentinel-0.7.0.tgz -C %USERPROFILE%\\.openclaw\\extensions\\openclaw-plugin-vt-sentinel --strip-components=1 && cd %USERPROFILE%\\.openclaw\\extensions\\openclaw-plugin-vt-sentinel && npm install --omit=dev" }
+exec { "command": "cd %TEMP% && npm pack openclaw-plugin-vt-sentinel && mkdir %USERPROFILE%\\.openclaw\\extensions\\openclaw-plugin-vt-sentinel && tar xzf openclaw-plugin-vt-sentinel-0.9.2.tgz -C %USERPROFILE%\\.openclaw\\extensions\\openclaw-plugin-vt-sentinel --strip-components=1 && cd %USERPROFILE%\\.openclaw\\extensions\\openclaw-plugin-vt-sentinel && npm install --omit=dev" }
 ```
 
 ## Step 4: Restart the gateway
@@ -118,7 +118,7 @@ exec { "command": "openclaw gateway restart" }
 
 ## Step 5: Verify
 
-After restart, check that the plugin loaded correctly and shows 7 tools:
+After restart, check that the plugin loaded correctly and shows 9 tools:
 
 ```
 exec { "command": "openclaw plugins list 2>/dev/null | grep vt-sentinel" }
@@ -140,6 +140,8 @@ VT Sentinel provides:
 - `vt_sentinel_configure` — Change settings at runtime (presets, notify level, block mode)
 - `vt_sentinel_reset_policy` — Reset to defaults
 - `vt_sentinel_help` — Quick-start guide and privacy info
+- `vt_sentinel_update` — Check for updates and get upgrade instructions
+- `vt_sentinel_re_register` — Re-register agent identity with VTAI
 - Automatic scanning of downloaded/created files
 - Active blocking of malicious file execution and dangerous command patterns
 
