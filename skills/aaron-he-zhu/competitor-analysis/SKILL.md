@@ -1,10 +1,51 @@
 ---
 name: competitor-analysis
-description: Analyzes competitor SEO and GEO strategies including their ranking keywords, content approaches, backlink profiles, and AI citation patterns. Reveals opportunities to outperform competition.
-geo-relevance: "medium"
+description: 'Use when the user asks to "analyze competitors", "competitor SEO", "who ranks for", "competitive analysis", "what are my competitors doing", "what are they doing differently", "why do they rank higher", or "spy on competitor SEO". Analyzes competitor SEO and GEO strategies including their ranking keywords, content approaches, backlink profiles, and AI citation patterns. Reveals opportunities to outperform competition. For content-focused gap analysis, see content-gap-analysis. For link profile specifics, see backlink-analyzer.'
+license: Apache-2.0
+metadata:
+  author: aaron-he-zhu
+  version: "2.0.0"
+  geo-relevance: "medium"
+  tags:
+    - seo
+    - geo
+    - competitor analysis
+    - competitive intelligence
+    - benchmarking
+    - market analysis
+    - ranking analysis
+  triggers:
+    - "analyze competitors"
+    - "competitor SEO"
+    - "who ranks for"
+    - "competitive analysis"
+    - "what are my competitors doing"
+    - "competitor keywords"
+    - "competitor backlinks"
+    - "what are they doing differently"
+    - "why do they rank higher"
+    - "spy on competitor SEO"
 ---
 
 # Competitor Analysis
+
+
+> **[SEO & GEO Skills Library](https://skills.sh/aaron-he-zhu/seo-geo-claude-skills)** · 20 skills for SEO + GEO · Install all: `npx skills add aaron-he-zhu/seo-geo-claude-skills`
+
+<details>
+<summary>Browse all 20 skills</summary>
+
+**Research** · [keyword-research](../keyword-research/) · **competitor-analysis** · [serp-analysis](../serp-analysis/) · [content-gap-analysis](../content-gap-analysis/)
+
+**Build** · [seo-content-writer](../../build/seo-content-writer/) · [geo-content-optimizer](../../build/geo-content-optimizer/) · [meta-tags-optimizer](../../build/meta-tags-optimizer/) · [schema-markup-generator](../../build/schema-markup-generator/)
+
+**Optimize** · [on-page-seo-auditor](../../optimize/on-page-seo-auditor/) · [technical-seo-checker](../../optimize/technical-seo-checker/) · [internal-linking-optimizer](../../optimize/internal-linking-optimizer/) · [content-refresher](../../optimize/content-refresher/)
+
+**Monitor** · [rank-tracker](../../monitor/rank-tracker/) · [backlink-analyzer](../../monitor/backlink-analyzer/) · [performance-reporter](../../monitor/performance-reporter/) · [alert-manager](../../monitor/alert-manager/)
+
+**Cross-cutting** · [content-quality-auditor](../../cross-cutting/content-quality-auditor/) · [domain-authority-auditor](../../cross-cutting/domain-authority-auditor/) · [entity-optimizer](../../cross-cutting/entity-optimizer/) · [memory-management](../../cross-cutting/memory-management/)
+
+</details>
 
 This skill provides comprehensive analysis of competitor SEO and GEO strategies, revealing what's working in your market and identifying opportunities to outperform the competition.
 
