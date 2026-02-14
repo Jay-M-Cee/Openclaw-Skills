@@ -36,6 +36,13 @@ export class CxpWrapper {
     }
     async run(args) {
         try {
+            // Ensure binary is executable
+            if (process.platform !== 'win32') {
+                try {
+                    await fs.chmod(this.binaryPath, 0o755);
+                }
+                catch (e) { }
+            }
             // Safety: 60s timeout for build/query
             const { stdout } = await execFileAsync(this.binaryPath, args, {
                 timeout: 60000,
@@ -46,7 +53,7 @@ export class CxpWrapper {
         catch (error) {
             // Identify timeout explicitly
             if (error.code === 'SIGKILL' || (error.killed && error.signal === 'SIGKILL')) {
-                const msg = `[Muninn MCP] CXP Timeout: Command killed after 30s to protect system stability. Args: ${args.join(' ')}`;
+                const msg = `[Muninn] CXP Timeout: Command killed after 30s to protect system stability. Args: ${args.join(' ')}`;
                 console.error(msg);
                 throw new Error("Timeout: The brain query took too long and was terminated safely.");
             }

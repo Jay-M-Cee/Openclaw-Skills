@@ -1,13 +1,13 @@
+
 import { McpError, ErrorCode } from "@modelcontextprotocol/sdk/types.js";
 import { ProjectManager } from "./project_manager.js";
 import * as path from "path";
 import fs from "fs-extra";
+
 export class ToolExecutor {
-    projectManager;
-    constructor(projectManager) {
-        this.projectManager = projectManager;
-    }
-    async execute(name, args) {
+    constructor(private projectManager: ProjectManager) {}
+
+    async execute(name: string, args: any): Promise<any> {
         switch (name) {
             case "init_project":
                 return this.handleInitProject(args);
@@ -27,7 +27,8 @@ export class ToolExecutor {
                 throw new McpError(ErrorCode.MethodNotFound, `Unknown tool: ${name}`);
         }
     }
-    async handleInitProject(args) {
+
+    private async handleInitProject(args: any): Promise<any> {
         const projectPath = args.project_path || process.cwd();
         const absolutePath = path.resolve(projectPath);
         if (await this.projectManager.isInitialized(absolutePath)) {
@@ -36,39 +37,43 @@ export class ToolExecutor {
         await this.projectManager.initProject(absolutePath);
         await this.projectManager.setActiveProject(absolutePath);
         await this.projectManager.indexProject(absolutePath);
-        return { content: [{ type: "text", text: "Muninn MCP initialized successfully!" }] };
+        return { content: [{ type: "text", text: "Muninn initialized successfully!" }] };
     }
-    async handleBrainCheck(args) {
+
+    private async handleBrainCheck(args: any): Promise<any> {
         const currentProject = this.projectManager.getCurrentProject();
-        if (!currentProject)
-            return { content: [{ type: "text", text: "⚠️ No active project. Run reindex_context first." }] };
+        if (!currentProject) return { content: [{ type: "text", text: "⚠️ No active project. Run reindex_context first." }] };
+        
         const context = await this.projectManager.searchContext(args.task_description, 3);
         return {
             content: [{
-                    type: "text",
-                    text: `🧠 **BRAIN CHECK COMPLETE**\n\nProject: ${path.basename(currentProject)}\n\n${context}\n\n✅ Context loaded.`
-                }]
+                type: "text",
+                text: `🧠 **BRAIN CHECK COMPLETE**\n\nProject: ${path.basename(currentProject)}\n\n${context}\n\n✅ Context loaded.`
+            }]
         };
     }
-    async handleAddMemory(args) {
+
+    private async handleAddMemory(args: any): Promise<any> {
         const filePath = await this.projectManager.addMemory(args.title, args.content, args.category);
         return { content: [{ type: "text", text: `Memory saved to: ${filePath}` }] };
     }
-    async handleSearchContext(args) {
+
+    private async handleSearchContext(args: any): Promise<any> {
         const result = await this.projectManager.searchContext(args.query, args.limit || 5);
         return { content: [{ type: "text", text: result }] };
     }
-    async handleReindexContext(args) {
+
+    private async handleReindexContext(args: any): Promise<any> {
         const projectPath = args.project_path || process.cwd();
         const absolutePath = path.resolve(projectPath);
         await this.projectManager.setActiveProject(absolutePath);
         await this.projectManager.indexProject(absolutePath);
         return { content: [{ type: "text", text: "Project re-indexed." }] };
     }
-    async handleEnforceRules(args) {
+
+    private async handleEnforceRules(args: any): Promise<any> {
         const projectPath = args.project_path || this.projectManager.getCurrentProject();
-        if (!projectPath)
-            throw new Error("No active project detected.");
+        if (!projectPath) throw new Error("No active project detected.");
         const updated = await this.projectManager.ensureRules(projectPath, true);
         return { content: [{ type: "text", text: `Rules enforced for: ${updated.join(', ') || 'none'}` }] };
     }

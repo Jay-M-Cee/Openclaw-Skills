@@ -1,7 +1,7 @@
 {
   "name": "muninn-core",
-  "version": "2.1.8",
-  "description": "Muninn MCP - Per-Project Memory Layer for AI Agents by BlackKnight",
+  "version": "2.3.7",
+  "description": "Muninn - Per-Project Memory Layer for AI Agents by BlackKnight",
   "main": "dist/index.js",
   "bin": {
     "muninn": "./dist/index.js",
