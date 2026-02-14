@@ -1,29 +1,50 @@
 ---
 name: med-info
-description: Retrieve medication information from authoritative open sources (openFDA drug labels/NDC, RxNorm, MedlinePlus Connect). Resolves drug names to RxCUI/NDC, fetches prescribing label sections with citations.
+description: Medication info with citations and traceable IDs (RxCUI/NDC/set_id) from authoritative public sources (openFDA, RxNorm/RxClass, DailyMed, MedlinePlus). Includes label sections plus optional recalls/shortages/FAERS and Orange/Purple Book context.
 metadata: {"clawdbot": {"emoji": "💊", "os": ["darwin", "linux"], "requires": {"bins": ["python3"]}}}
 ---
 
 # med-info
 
-Fetch medication information with citations from:
-- **openFDA** (drug label, NDC directory, recalls, shortages, FAERS adverse event reporting)
-- **RxNorm (RxNav API)** for normalization (RxCUI, brand-generic mapping)
+**Medication info with citations—fast.**
+
+Get a label-backed, traceable summary from authoritative public sources (FDA labeling + NLM identifiers). Designed for reference and research — **not** medical advice.
+
+**Privacy:** don’t include PHI. Query by medication name, **RxCUI**, **NDC**, or label **set_id**.
+
+## Highlights
+
+- **Citations & traceability:** includes identifiers (RxCUI, NDC, SPL set_id) plus label dates and source links when available.
+- **Label-first answers:** pulls key sections (boxed warning, indications, dosing, contraindications, warnings, interactions, adverse reactions).
+- **Normalization:** resolves brand/generic names → RxNorm best-match RxCUI; supports NDC lookups.
+- **Patient-friendly context:** links to MedlinePlus Connect when available.
+- **Optional add-ons:** recalls, shortages, FAERS aggregates, drug classes, DailyMed history/media, Orange Book, Purple Book.
+
+## Why install
+
+- You want **“show your work”** medication info for notes, training materials, QA, or internal docs.
+- You need a quick path from a messy drug name to **clean IDs** (RxCUI/NDC/set_id).
+- You’re building automations and need **JSON output** you can audit and reproduce.
+- You care about privacy: no patient context required (and none should be provided).
+
+## Sources
+
+This skill queries:
+- **openFDA** (drug labels, NDC directory, recalls/enforcement reports, shortages, FAERS)
+- **RxNorm (RxNav)** for normalization (RxCUI, brand↔generic mapping)
 - **RxClass (RxNav)** for drug class membership
-- **DailyMed** for SPL metadata and media (including labeler-submitted images)
+- **DailyMed** for SPL history/media (including labeler-submitted images)
 - **Orange Book** data files for TE/RLD context
 - **Purple Book** monthly data for biologics, biosimilars, and interchangeability
 - **MedlinePlus Connect** for patient-friendly summaries
 
-This skill is designed for **accuracy and traceability**: it always reports identifiers and source timestamps when available.
-
 ## Safety rules
 
 - For clinical decisions, **verify against the full official label**. This tool extracts key sections and returns references.
-- Do not input patient-identifying information.
+- Do not include PHI (patient-identifying information).
 - The script treats all user input as untrusted and **escapes values** when constructing openFDA `search` queries to prevent query-injection style surprises.
 
-## Quick start
+## Example commands
 
 ### 1) Summarize a drug by name
 ```bash
