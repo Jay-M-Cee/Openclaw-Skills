@@ -55,18 +55,20 @@ After configuring `.env`, start the caching proxy (prevents rate limiting):
 
 | Command | Description | Example |
 |---------|-------------|---------|
-| `status` | Account balance, positions, PnL (includes HIP-3) | `hyperliquid_tools.py status` |
+| `status` | Account balance, account mode, positions, PnL (handles unified/portfolio margin accounts) | `hyperliquid_tools.py status` |
 | `positions` | Detailed position info (leverage, liquidation) | `hyperliquid_tools.py positions` |
 | `orders` | Open orders | `hyperliquid_tools.py orders` |
+| `check` | Position health check (book ratio, funding, PnL, leverage, liquidation warnings) | `hyperliquid_tools.py check` or `check --address 0x...` |
 | `user-funding` | Your funding payments received/paid | `hyperliquid_tools.py user-funding --lookback 7d` |
-| `portfolio` | Portfolio performance (PnL, volume by period) | `hyperliquid_tools.py portfolio` |
+| `portfolio` | Portfolio performance (PnL, volume by period) | `hyperliquid_tools.py portfolio` or `portfolio --address 0x...` |
+| `swap` | Swap USDC ↔ HIP-3 dex collateral (USDH, USDe, USDT0) | `hyperliquid_tools.py swap 20` or `swap 20 --token USDe` or `swap 10 --to-usdc` |
 
 ### Market Data
 
 | Command | Description | Example |
 |---------|-------------|---------|
 | `price [COINS...]` | Current prices (supports HIP-3 dex prefix) | `hyperliquid_tools.py price BTC ETH xyz:TSLA` |
-| `funding [COINS...]` | Funding rates (hourly + APR + signal) | `hyperliquid_tools.py funding BTC SOL DOGE` |
+| `funding [COINS...]` | Funding rates (hourly + APR + signal). `--predicted` shows the estimated rate for the next hourly settlement (can still shift as mark/oracle prices move before the hour closes), with Binance/Bybit comparison (APR-normalized across different intervals). Use predicted to preview upcoming charges and confirm a funding edge isn't HL-specific. | `hyperliquid_tools.py funding BTC SOL DOGE` or `funding BTC --predicted` |
 | `book COIN` | L2 order book with spread | `hyperliquid_tools.py book SOL` |
 | `candles COIN` | OHLCV candlestick data with SMA | `hyperliquid_tools.py candles BTC --interval 1h --lookback 7d` |
 | `funding-history COIN` | Historical funding rates with summary | `hyperliquid_tools.py funding-history BTC --lookback 24h` |
@@ -117,9 +119,9 @@ After configuring `.env`, start the caching proxy (prevents rate limiting):
 
 | Command | Description | Example |
 |---------|-------------|---------|
-| `polymarket [CATEGORY]` | Polymarket prediction data | `hyperliquid_tools.py polymarket crypto` |
+| `polymarket [CATEGORY]` | Active Polymarket prediction markets | `hyperliquid_tools.py polymarket crypto` |
 
-Categories: `crypto`, `btc`, `eth`, `trending`, `macro`
+Categories: `crypto` (default), `btc`, `eth`, `trending`, `macro`
 
 ### HIP-3 Trading
 
@@ -140,6 +142,27 @@ hyperliquid_tools.py funding xyz:TSLA vntl:SPACEX km:US500
 - Higher fees (2x normal)
 - Thinner order books (wider spreads)
 - Max leverage varies by asset (10x for most equities, 20x for commodities/metals)
+- Some dexes require non-USDC collateral — swap first (see below)
+
+**HIP-3 Collateral:** Some dexes use stablecoin collateral other than USDC (e.g. USDH, USDe, USDT0). You must swap USDC to the required collateral before trading on these dexes. Use `dexes` to check current collateral requirements — they can change.
+
+| Collateral | Swap command |
+|-----------|--------------|
+| USDC | No swap needed |
+| USDH | `swap <amount>` (default) |
+| USDe | `swap <amount> --token USDe` |
+| USDT0 | `swap <amount> --token USDT0` |
+
+To swap collateral back to USDC: `swap <amount> --to-usdc` (or `swap <amount> --token USDe --to-usdc`).
+
+Example workflow for km:US500:
+```bash
+hyperliquid_tools.py swap 20                          # Swap 20 USDC → USDH
+hyperliquid_tools.py leverage km:US500 10 --isolated  # Set leverage
+hyperliquid_tools.py buy km:US500 0.02                # Trade
+hyperliquid_tools.py close km:US500                   # Close when done
+hyperliquid_tools.py swap 20 --to-usdc                # Swap USDH back to USDC
+```
 
 ## Caching Proxy (Default — Start First)
 
@@ -152,6 +175,13 @@ Each CLI invocation cold-starts the SDK and burns ~40 API weight units just to i
 ```
 
 The `.env` file includes `HL_PROXY_URL=http://localhost:18731` by default. All read commands will route through the proxy automatically. To disable the proxy (not recommended), comment out or remove `HL_PROXY_URL` from `.env`.
+
+**Restart the proxy** after installing or updating the skill (e.g. `git pull`, dependency changes). The proxy runs in-memory — it won't pick up code or config changes until restarted:
+
+```bash
+# Find and kill existing proxy, then restart
+kill $(lsof -ti:18731) 2>/dev/null; {baseDir}/scripts/.venv/bin/python {baseDir}/scripts/server.py &
+```
 
 **Proxy endpoints:**
 
@@ -179,6 +209,22 @@ The proxy caches `/info` read responses (metadata 300s, prices 5s, user state 2s
 | `HL_SECRET_KEY` | For trading | API wallet private key |
 | `HL_TESTNET` | No | `true` for testnet (default), `false` for mainnet |
 | `HL_PROXY_URL` | Recommended | Caching proxy URL (default: `http://localhost:18731`) |
+| `HL_ENV_FILE` | No | Override `.env` file path. When set, loads env vars from this file instead of default `.env` discovery. Useful for wrapper scripts that route to hyperclaw from other projects. |
 | `XAI_API_KEY` | For intelligence | Grok API key for sentiment/unlocks/devcheck |
 
 **Read-only commands** (`price`, `funding`, `book`, `scan`, `hip3`, `dexes`, `raw`, `polymarket`) work without credentials. Trading and account commands require `HL_ACCOUNT_ADDRESS` and `HL_SECRET_KEY`.
+
+## Account Abstraction Modes
+
+**Unified mode is recommended for API wallet trading.** In standard mode, funds are split between spot and perp clearinghouses, and API wallets cannot transfer between them. Unified mode pools all funds into a single balance, so cross-margin perps can access your full balance without manual transfers. HIP-3 dexes that require non-USDC collateral work in both modes — just use the `swap` command to convert USDC to the required collateral.
+
+Hyperliquid accounts operate in one of several modes that affect where balances live. The `status` command auto-detects the mode and shows it as a badge (`[unified]`, `[portfolio margin]`, or `[standard]`).
+
+| Mode | Badge | How balances work |
+|------|-------|-------------------|
+| **Unified** (default) | `[unified]` | Single balance per asset across all DEXes. Spot and perp share collateral. All balances appear in the spot clearinghouse. |
+| **Portfolio Margin** | `[portfolio margin]` | All eligible assets (HYPE, BTC, USDH, USDC) unified into one margin calculation. Most capital-efficient. Pre-alpha. |
+| **Standard** | `[standard]` | Separate balances for perps and spot on each DEX. No cross-collateralization. |
+| **DEX Abstraction** | `[unified]` | Deprecated. USDC defaults to perps balance, other collateral to spot. Shown as `[unified]` since behavior is similar. |
+
+**For position sizing, always use "Portfolio Value"** from `status`. In standard mode this equals the perp account value. In unified/portfolio margin mode it equals `perp accountValue + spot balances`, since funds can live in either clearinghouse. The "Perp Margin" sub-line (only shown for non-standard modes) is just the perp clearinghouse portion — don't use it for sizing.
