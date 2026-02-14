@@ -1,97 +1,70 @@
 ---
 name: gumroad-pro
-description: "Comprehensive Gumroad merchant management including product catalogs, sales intelligence, recurring subscription oversight, license key management, and financial payout tracking. Use when you need to: (1) Check sales volume or revenue reports, (2) Manage product availability and pricing, (3) Create or edit discount offer codes, (4) Verify or rotate license keys, (5) Audit payout history and upcoming deposits, or (6) Configure automated webhooks for store events."
+description: "Comprehensive Gumroad merchant management for Products, Sales, Licenses, Discounts, Payouts, and Webhooks. Use when Claude needs to: (1) Manage digital or physical inventory, (2) Oversee transactions and process refunds/shipping, (3) Verify or rotate license keys, (4) Manage offer codes, or (5) Monitor payout history and store webhooks."
+metadata:
+  {
+    "openclaw":
+      {
+        "requires": { "bins": ["node"], "env": ["GUMROAD_ACCESS_TOKEN", "API_KEY"], "config": [] },
+        "primaryEnv": "GUMROAD_ACCESS_TOKEN"
+      }
+  }
 ---
 
 # Gumroad Pro
 
-Advanced merchant dashboard for managing your digital empire. Supports both interactive UI (buttons/numbered lists) and direct CLI commands.
+## 🛑 AI PROTOCOL
+1. **PRIORITIZE HANDLER**: Always attempt to use the interactive button-based GUI (handled by `handler.js`) for the best merchant experience.
+2. **CLI AS FALLBACK**: Only use `scripts/gumroad-pro.js` via the CLI for complex data retrieval or specific actions not available in the GUI.
+3. **USE --json**: When using the CLI, **ALWAYS** use the `--json` flag and check for `"success": true`.
+4. **REDUCE SPAM**: Use `action: 'edit'` in `renderResponse` for all menu transitions and state updates. Only use `action: 'send'` for the initial menu or when the context fundamentally changes.
+5. **HANDLE ERRORS**: Read the `"error"` field in JSON responses to inform the user of failures.
 
-## Setup
+## ❓ Navigation & Data
+- **Primary Interaction**: Use the adaptive logic in `handler.js`. See [handler-guide.md]({baseDir}/references/handler-guide.md) for interaction patterns, [ui-rendering.md]({baseDir}/references/ui-rendering.md) for rendering protocols, and [changelog.md]({baseDir}/references/changelog.md) for version history. Respond with button callback data (e.g., `gp:products`) or digits (1, 2, 3) where applicable.
+- **Secondary Interaction**: Use `scripts/gumroad-pro.js` for direct actions. See [api-reference.md]({baseDir}/references/api-reference.md) for command specs.
 
-The skill requires a Gumroad Access Token. This can be stored as either `GUMROAD_ACCESS_TOKEN` in the environment or as `apiKey` (which maps to `API_KEY`) in the skill configuration.
+## 🔑 Authentication
+The skill requires a **Gumroad API Key**. It looks for the following environment variables (in order of preference):
+1. `GUMROAD_ACCESS_TOKEN`
+2. `API_KEY`
 
-### Option 1 (Recommended): Simple API Key
+### Configuration
+You can set this in your `~/.openclaw/openclaw.json` using the `apiKey` convenience field:
 ```json
-"skills": {
-  "entries": {
-    "gumroad-pro": {
-      "apiKey": "your_token_here"
-    }
-  }
-}
-```
-
-### Option 2: Environment Variable
-```json
-"skills": {
-  "entries": {
-    "gumroad-pro": {
-      "env": {
-        "GUMROAD_ACCESS_TOKEN": "your_token_here"
+{
+  "skills": {
+    "entries": {
+      "gumroad-pro": {
+        "enabled": true,
+        "apiKey": "YOUR_GUMROAD_TOKEN"
       }
     }
   }
 }
 ```
+The platform will automatically inject your `apiKey` into the preferred `GUMROAD_ACCESS_TOKEN` variable.
 
-## Commands
+## 🛠️ Workflows
 
-### Interactive Dashboard
-- `/gp`, `/gumroad`, `/gumroad-pro`, or `/gumroad_pro`: Opens the main control hub. This uses an adaptive UI that provides buttons on supported platforms (Telegram, Discord) and numbered lists on others (WhatsApp, Signal).
+### Product Inventory
+- List all digital assets to monitor sales and availability.
+- Toggle publication status or delete obsolete items.
+- View [detailed product commands]({baseDir}/references/api-reference.md#1-products).
 
-### Technical Reference (Core CLI)
+### Sales & Fulfillment
+- Search transactions by email.
+- Process refunds or mark physical goods as shipped.
+- View [detailed sales commands]({baseDir}/references/api-reference.md#2-sales).
 
-#### Product Management
-- `gp products list`: List all assets with IDs and stats.
-- `gp products details --id <id>`: View full specifications and metadata.
-- `gp products create --name <name> --price <cents> [--description <text>] [--url <custom_link>] [--taxable <bool_string>] [--currency <iso>]`
-- `gp products update --id <id> [--name <name>] [--price <cents>] [--description <text>] [--url <link>]`
-- `gp products enable/disable --id <id>`: Toggle store visibility.
-- `gp products delete --id <id>`: Permanent removal.
+### Licensing
+- Verify keys for software distribution.
+- Manage usage counts or rotate keys for security.
+- View [detailed license commands]({baseDir}/references/api-reference.md#3-licenses).
 
-#### Sales & Revenue Intelligence
-- `gp sales list [--after YYYY-MM-DD] [--before YYYY-MM-DD] [--page <key>] [--product_id <id>] [--email <addr>] [--order_id <id>]`
-- `gp sales details --id <id>`: Customer data, custom fields, and shipping status.
-- `gp sales refund --id <id> [--amount <cents>]`: Default is full refund.
-- `gp sales resend-receipt --id <id>`: Resends the purchase receipt.
-- `gp sales mark-shipped --id <id> --tracking <url_or_number>`
+### Offer Management
+- Create, list, or remove discount codes for marketing campaigns.
+- View [detailed discount commands]({baseDir}/references/api-reference.md#4-discounts-offer-codes).
 
-#### License & Subscriber Deep-Dive
-- `gp licenses verify/enable/decrement/rotate --product <id> --key <key>`
-- `gp subscribers list --product <id>`: List all recurring subscribers.
-- `gp subscribers details --id <sub_id>`: Check subscription health and billing.
-
-#### Revenue & Payout Logistics
-- `gp payouts list [--after YYYY-MM-DD] [--before YYYY-MM-DD] [--page <key>] [--upcoming <false|true>]`
-- `gp payouts details --id <id>`: Processing timestamps and processor info.
-
-#### Product Customization (Variants & Categories)
-- `gp variant-categories list/create/update/delete --product <id> [--title <name>] [--id <cat_id>]`
-- `gp variants list/create/update/delete --product <id> --category <cat_id> [--name <name>] [--price <diff_cents>] [--limit <max>] [--id <var_id>]`
-
-#### Custom Checkout Fields
-- `gp custom-fields list/create/update/delete --product <id> [--name <name>] [--required <true|false>]`
-
-#### Automation (Webhooks)
-- `gp subscriptions list [--type <event>]`
-- `gp subscriptions create --url <url> --type <event_type>`
-- `gp subscriptions delete --id <id>`
-
-## LLM Guidance & Operational Protocols
-
-### CLI Execution Protocol
-- **Shell Pattern**: Use `node skills/gumroad-pro/scripts/gumroad-pro.js <command> <subcommand> [flags]`.
-- **Flag Sensitivity**: Boolean flags (like `--upcoming` or `--required`) must be passed as strings (e.g., `"false"` or `"true"`).
-- **Price Handling**: All price inputs are in **cents** (e.g., $10.00 = `1000`). Always clarify this during creation workflows.
-
-### User Interface Interaction
-- **CRITICAL:** On Telegram and Discord, you **MUST** use the `message` tool with `buttons` for the Main Menu and all sub-menus. **NEVER** output a raw text list or CLI output directly to the user on these platforms.
-- **Adaptive Rendering**: Use `buttons` + `edit` for Telegram/WebChat; `numbered lists` + `send` for WhatsApp/Signal.
-- **State Capture**: Multi-step inputs (e.g., creating a discount) should use the `pending_input.json` state pattern in `handler.js`.
-- **Proactive Verifications**: When viewing sales, if a `license_key` is present, always offer a "Check License" action.
-
-### Safety & Integrity
-- **Confirmation Requirement**: Mandatory "Ask" state before `delete` or `refund`.
-- **ID Integrity**: Always use IDs exactly as returned by `list` commands; they are case-sensitive.
-- **Error Transparency**: If a `502` or `401` occurs, advise the user to check their `GUMROAD_ACCESS_TOKEN`.
+---
+Developed for the OpenClaw community by [Abdul Karim Mia](https://github.com/abdul-karim-mia).
