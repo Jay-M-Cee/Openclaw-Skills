@@ -3,11 +3,16 @@
   "slug": "hyperclaw",
   "displayName": "HyperClaw",
   "latest": {
-    "version": "0.1.5",
-    "publishedAt": 1771087387503,
-    "commit": "https://github.com/openclaw/skills/commit/f8f48114d1d69adca0422c9f10f7e933b29aa525"
+    "version": "0.1.8",
+    "publishedAt": 1771102466392,
+    "commit": null
   },
   "history": [
+    {
+      "version": "0.1.5",
+      "publishedAt": 1771087387503,
+      "commit": "https://github.com/openclaw/skills/commit/f8f48114d1d69adca0422c9f10f7e933b29aa525"
+    },
     {
       "version": "0.1.0",
       "publishedAt": 1771019658145,

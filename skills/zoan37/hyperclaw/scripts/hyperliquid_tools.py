@@ -240,18 +240,18 @@ def get_account_summary(info, address: str) -> dict:
                         'hold': hold,
                     })
 
-            # In unified mode, spot and perp are separate pools.
-            # Total portfolio = perp accountValue + spot balances.
-            # (Confirmed by the portfolio endpoint which reports both summed.)
-            # TODO: This assumes spot balances are USDC (1 unit = $1). If spot
-            # trading is added (BTC, HYPE, ETH, etc.), each balance must be
-            # converted to USD via mid price: spot_value = sum(total * price).
-            # Without this, non-stablecoin spot holdings will be massively
-            # understated (e.g. 0.5 BTC counted as $0.50 instead of ~$34k).
-            spot_value = sum(b['total'] for b in spot_balances)
-            portfolio_value = account_value + spot_value
-            withdrawable = float(perp_state.get('withdrawable', 0)) + \
-                sum(b['total'] - b['hold'] for b in spot_balances)
+            # In unified mode, spot USDC "hold" is the USDC locked as perp
+            # margin.  perp accountValue is derived FROM that held USDC +
+            # unrealized PnL.  Using spot total would double-count the held
+            # portion, so we use free (total - hold) for spot and add it to
+            # perp accountValue.
+            #
+            # TODO: This assumes spot balances are stablecoins (1 unit ≈ $1).
+            # If spot trading of non-stablecoins is added (BTC, HYPE, etc.),
+            # each balance must be converted to USD via mid price.
+            spot_free = sum(b['total'] - b['hold'] for b in spot_balances)
+            portfolio_value = account_value + spot_free
+            withdrawable = float(perp_state.get('withdrawable', 0)) + spot_free
         except Exception:
             # Fallback: use perp values if spot query fails
             portfolio_value = account_value
@@ -2154,6 +2154,39 @@ def cmd_portfolio(args):
         print(f"{Colors.RED}Error fetching portfolio: {e}{Colors.END}")
 
 
+def _cmd_scan_sorted(assets, hip3_data, sort_key, reverse, top_n, min_volume):
+    """Render a single flat sorted table for scan --sort mode."""
+    # Merge native + HIP-3 into one list
+    merged = list(assets)
+    for h in hip3_data:
+        if h.get('volume', 0) >= min_volume:
+            merged.append(h)
+
+    # Sort key mapping with default directions
+    sort_cfg = {
+        'funding':      (lambda x: x['funding_apr'], False),   # ascending (most negative first)
+        'volume':       (lambda x: x['volume'], True),          # descending
+        'oi':           (lambda x: x.get('oi_ntl', 0), True),    # descending (notional)
+        'price-change': (lambda x: x['pct_change'], True),     # descending
+    }
+    key_fn, default_desc = sort_cfg[sort_key]
+    descending = not default_desc if reverse else default_desc
+
+    merged.sort(key=key_fn, reverse=descending)
+    rows = merged[:top_n]
+
+    label = sort_key.upper().replace('-', ' ')
+    direction = "descending" if descending else "ascending"
+    print(f"\n{Colors.BOLD}Sorted by {label} ({direction}) — top {top_n}:{Colors.END}")
+    print(f"{'Asset':<14} {'Price':>12} {'Funding APR':>12} {'OI':>14} {'Volume':>14} {'24h Chg':>9}")
+    print("-" * 79)
+
+    for a in rows:
+        funding_color = Colors.GREEN if a['funding_apr'] < -10 else Colors.RED if a['funding_apr'] > 10 else Colors.YELLOW
+        chg_color = Colors.GREEN if a['pct_change'] > 0 else Colors.RED if a['pct_change'] < 0 else Colors.END
+        print(f"{a['name']:<14} ${a['price']:>10,.2f} {funding_color}{a['funding_apr']:>11.1f}%{Colors.END} ${a.get('oi_ntl', 0):>12,.0f} ${a.get('volume', 0):>12,.0f} {chg_color}{a['pct_change']:>+8.2f}%{Colors.END}")
+
+
 def cmd_scan(args):
     """Scan all assets for trading opportunities based on funding rates."""
     info, config = setup_info()
@@ -2179,6 +2212,8 @@ def cmd_scan(args):
             mark_px = float(ctx.get('markPx', 0))
             oi = float(ctx.get('openInterest', 0))
             volume = float(ctx.get('dayNtlVlm', 0))
+            prev_px = float(ctx.get('prevDayPx', 0))
+            pct_change = ((mark_px - prev_px) / prev_px * 100) if prev_px else 0.0
 
             if volume >= min_volume:
                 assets.append({
@@ -2187,40 +2222,14 @@ def cmd_scan(args):
                     'funding_hr': funding * 100,
                     'funding_apr': funding * 24 * 365 * 100,
                     'oi': oi,
-                    'volume': volume
+                    'oi_ntl': oi * mark_px,
+                    'volume': volume,
+                    'pct_change': pct_change,
                 })
 
         print(f"\nTotal perps: {len(universe)} | With sufficient volume: {len(assets)}")
 
-        # Sort by funding rate (most negative first)
-        assets_by_funding = sorted(assets, key=lambda x: x['funding_apr'])
-
-        print(f"\n{Colors.BOLD}{Colors.GREEN}TOP {top_n} NEGATIVE FUNDING (shorts paying longs - LONG opportunities):{Colors.END}")
-        print(f"{'Asset':<12} {'Price':>12} {'Funding/hr':>12} {'APR':>10} {'Open Interest':>15} {'24h Volume':>15}")
-        print("-" * 80)
-
-        for a in assets_by_funding[:top_n]:
-            funding_color = Colors.GREEN if a['funding_apr'] < -50 else Colors.YELLOW if a['funding_apr'] < 0 else Colors.END
-            print(f"{a['name']:<12} ${a['price']:>10,.2f} {funding_color}{a['funding_hr']:>11.4f}%{Colors.END} {a['funding_apr']:>9.1f}% ${a['oi']:>13,.0f} ${a['volume']:>13,.0f}")
-
-        print(f"\n{Colors.BOLD}{Colors.RED}TOP {top_n} POSITIVE FUNDING (longs paying shorts - SHORT opportunities or avoid):{Colors.END}")
-        print(f"{'Asset':<12} {'Price':>12} {'Funding/hr':>12} {'APR':>10} {'Open Interest':>15} {'24h Volume':>15}")
-        print("-" * 80)
-
-        for a in assets_by_funding[-top_n:][::-1]:
-            funding_color = Colors.RED if a['funding_apr'] > 50 else Colors.YELLOW if a['funding_apr'] > 0 else Colors.END
-            print(f"{a['name']:<12} ${a['price']:>10,.2f} {funding_color}{a['funding_hr']:>11.4f}%{Colors.END} {a['funding_apr']:>9.1f}% ${a['oi']:>13,.0f} ${a['volume']:>13,.0f}")
-
-        # High volume movers
-        assets_by_volume = sorted(assets, key=lambda x: x['volume'], reverse=True)[:10]
-        print(f"\n{Colors.BOLD}{Colors.BLUE}TOP 10 BY VOLUME (most liquid):{Colors.END}")
-        print(f"{'Asset':<12} {'Price':>12} {'Funding APR':>12} {'24h Volume':>15}")
-        print("-" * 55)
-        for a in assets_by_volume:
-            funding_color = Colors.GREEN if a['funding_apr'] < -10 else Colors.RED if a['funding_apr'] > 10 else Colors.YELLOW
-            print(f"{a['name']:<12} ${a['price']:>10,.2f} {funding_color}{a['funding_apr']:>11.1f}%{Colors.END} ${a['volume']:>13,.0f}")
-
-        # HIP-3 Perps (all dexes) — bulk fetch predicted funding via metaAndAssetCtxs
+        # HIP-3 Perps (all dexes) — bulk fetch via metaAndAssetCtxs
         import requests as req
 
         hip3_data = []
@@ -2229,10 +2238,6 @@ def cmd_scan(args):
             dex_names = [d.get('name') for d in all_dexes if d is not None and d.get('name')]
         except Exception:
             dex_names = ['xyz']
-
-        print(f"\n{Colors.BOLD}{Colors.MAGENTA}HIP-3 PERPS:{Colors.END}")
-        print(f"{'Asset':<14} {'Price':>12} {'Funding/hr':>12} {'APR':>10}")
-        print("-" * 50)
 
         for dex in dex_names:
             try:
@@ -2254,6 +2259,10 @@ def cmd_scan(args):
                     ctx = dex_ctxs[i]
                     funding = float(ctx.get('funding', 0))
                     price = float(ctx.get('markPx', 0))
+                    h3_oi = float(ctx.get('openInterest', 0))
+                    h3_volume = float(ctx.get('dayNtlVlm', 0))
+                    h3_prev_px = float(ctx.get('prevDayPx', 0))
+                    h3_pct_change = ((price - h3_prev_px) / h3_prev_px * 100) if h3_prev_px else 0.0
                     funding_hr = funding * 100
                     funding_apr = funding * 24 * 365 * 100
 
@@ -2261,13 +2270,62 @@ def cmd_scan(args):
                         'name': coin,
                         'price': price,
                         'funding_hr': funding_hr,
-                        'funding_apr': funding_apr
+                        'funding_apr': funding_apr,
+                        'oi': h3_oi,
+                        'oi_ntl': h3_oi * price,
+                        'volume': h3_volume,
+                        'pct_change': h3_pct_change,
                     })
-
-                    funding_color = Colors.GREEN if funding_apr < -10 else Colors.RED if funding_apr > 10 else Colors.YELLOW
-                    print(f"{coin:<14} ${price:>10,.2f} {funding_color}{funding_hr:>11.4f}%{Colors.END} {funding_apr:>9.1f}%")
             except Exception:
                 pass
+
+        # --sort mode: flat sorted table
+        sort_key = getattr(args, 'sort', None)
+        if sort_key:
+            reverse = getattr(args, 'reverse', False)
+            return _cmd_scan_sorted(assets, hip3_data, sort_key, reverse, top_n, min_volume)
+
+        # Default multi-section output
+        # Sort by funding rate (most negative first)
+        assets_by_funding = sorted(assets, key=lambda x: x['funding_apr'])
+
+        print(f"\n{Colors.BOLD}{Colors.GREEN}TOP {top_n} NEGATIVE FUNDING (shorts paying longs - LONG opportunities):{Colors.END}")
+        print(f"{'Asset':<12} {'Price':>12} {'Funding/hr':>12} {'APR':>10} {'24h Chg':>9} {'Open Interest':>15} {'24h Volume':>15}")
+        print("-" * 89)
+
+        for a in assets_by_funding[:top_n]:
+            funding_color = Colors.GREEN if a['funding_apr'] < -50 else Colors.YELLOW if a['funding_apr'] < 0 else Colors.END
+            chg_color = Colors.GREEN if a['pct_change'] > 0 else Colors.RED if a['pct_change'] < 0 else Colors.END
+            print(f"{a['name']:<12} ${a['price']:>10,.2f} {funding_color}{a['funding_hr']:>11.4f}%{Colors.END} {a['funding_apr']:>9.1f}% {chg_color}{a['pct_change']:>+8.2f}%{Colors.END} ${a['oi']:>13,.0f} ${a['volume']:>13,.0f}")
+
+        print(f"\n{Colors.BOLD}{Colors.RED}TOP {top_n} POSITIVE FUNDING (longs paying shorts - SHORT opportunities or avoid):{Colors.END}")
+        print(f"{'Asset':<12} {'Price':>12} {'Funding/hr':>12} {'APR':>10} {'24h Chg':>9} {'Open Interest':>15} {'24h Volume':>15}")
+        print("-" * 89)
+
+        for a in assets_by_funding[-top_n:][::-1]:
+            funding_color = Colors.RED if a['funding_apr'] > 50 else Colors.YELLOW if a['funding_apr'] > 0 else Colors.END
+            chg_color = Colors.GREEN if a['pct_change'] > 0 else Colors.RED if a['pct_change'] < 0 else Colors.END
+            print(f"{a['name']:<12} ${a['price']:>10,.2f} {funding_color}{a['funding_hr']:>11.4f}%{Colors.END} {a['funding_apr']:>9.1f}% {chg_color}{a['pct_change']:>+8.2f}%{Colors.END} ${a['oi']:>13,.0f} ${a['volume']:>13,.0f}")
+
+        # High volume movers
+        assets_by_volume = sorted(assets, key=lambda x: x['volume'], reverse=True)[:10]
+        print(f"\n{Colors.BOLD}{Colors.BLUE}TOP 10 BY VOLUME (most liquid):{Colors.END}")
+        print(f"{'Asset':<12} {'Price':>12} {'Funding APR':>12} {'24h Chg':>9} {'24h Volume':>15}")
+        print("-" * 64)
+        for a in assets_by_volume:
+            funding_color = Colors.GREEN if a['funding_apr'] < -10 else Colors.RED if a['funding_apr'] > 10 else Colors.YELLOW
+            chg_color = Colors.GREEN if a['pct_change'] > 0 else Colors.RED if a['pct_change'] < 0 else Colors.END
+            print(f"{a['name']:<12} ${a['price']:>10,.2f} {funding_color}{a['funding_apr']:>11.1f}%{Colors.END} {chg_color}{a['pct_change']:>+8.2f}%{Colors.END} ${a['volume']:>13,.0f}")
+
+        # HIP-3 section display
+        print(f"\n{Colors.BOLD}{Colors.MAGENTA}HIP-3 PERPS:{Colors.END}")
+        print(f"{'Asset':<14} {'Price':>12} {'Funding/hr':>12} {'APR':>10} {'24h Chg':>9}")
+        print("-" * 59)
+
+        for h in hip3_data:
+            funding_color = Colors.GREEN if h['funding_apr'] < -10 else Colors.RED if h['funding_apr'] > 10 else Colors.YELLOW
+            chg_color = Colors.GREEN if h['pct_change'] > 0 else Colors.RED if h['pct_change'] < 0 else Colors.END
+            print(f"{h['name']:<14} ${h['price']:>10,.2f} {funding_color}{h['funding_hr']:>11.4f}%{Colors.END} {h['funding_apr']:>9.1f}% {chg_color}{h['pct_change']:>+8.2f}%{Colors.END}")
 
         print(f"\n{Colors.BOLD}Summary:{Colors.END}")
         negative_funding = [a for a in assets if a['funding_apr'] < -20]
@@ -2967,6 +3025,10 @@ def main():
     scan_parser = subparsers.add_parser('scan', help='Scan ALL assets for funding opportunities')
     scan_parser.add_argument('--min-volume', type=float, default=100000, help='Minimum 24h volume filter (default: 100000)')
     scan_parser.add_argument('--top', type=int, default=20, help='Number of top results to show (default: 20)')
+    scan_parser.add_argument('--sort', choices=['funding', 'volume', 'oi', 'price-change'],
+                             help='Sort by single metric (outputs flat table instead of sections)')
+    scan_parser.add_argument('--reverse', action='store_true',
+                             help='Reverse sort direction')
 
     sentiment_parser = subparsers.add_parser('sentiment', help='Get Grok sentiment analysis for an asset')
     sentiment_parser.add_argument('coin', help='Asset to analyze sentiment for')
