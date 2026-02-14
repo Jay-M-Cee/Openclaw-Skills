@@ -1,8 +1,8 @@
 ---
 name: whatsapp-ultimate
-version: 1.3.0
-description: "Send WhatsApp messages, media, polls, stickers, voice notes, reactions, replies, and manage groups from your AI agent. Search message history with full-text search (SQLite + FTS5). Import WhatsApp chat exports. Native Baileys integration — zero external dependencies, no Docker, no CLI tools. The most complete WhatsApp skill for OpenClaw."
-homepage: https://github.com/openclaw/openclaw
+version: 1.5.0
+description: "Complete WhatsApp integration for OpenClaw agents — send messages, media, polls, stickers, voice notes, reactions & replies. Search chat history with full-text search (SQLite + FTS5). Download & transcribe voice messages. Import chat exports. Full history resync. Native Baileys — zero Docker, zero external tools. Works alongside OpenClaw's built-in WhatsApp channel."
+homepage: https://github.com/globalcaos/clawdbot-moltbot-openclaw
 repository: https://github.com/globalcaos/clawdbot-moltbot-openclaw
 metadata:
   openclaw:
@@ -47,6 +47,7 @@ The most complete WhatsApp skill for OpenClaw. Native Baileys integration — no
 | **Interactions** | Reactions, replies/quotes, edit, unsend |
 | **Groups** | Create, rename, icon, description, participants, admin, invite links |
 | **History** | Persistent SQLite storage, FTS5 full-text search, import historical exports |
+| **Resync** | Full history re-sync via re-link, automatic backup & restore |
 
 **Total: 22 distinct actions + searchable history**
 
@@ -434,6 +435,189 @@ Set up a daily cron job to summarize busy group chats:
 ```
 
 Your agent wakes up, reads yesterday's chats, and delivers a morning briefing. No manual effort.
+
+---
+
+## Download & Transcribe Voice Messages (v1.3.0+)
+
+The history database stores the **full raw WAMessage proto** (including media keys) in the `raw_json` column. This means you can download and decrypt any voice message, image, video, or document — even from group chats, even from other people.
+
+### How It Works
+
+```
+SQLite raw_json ──→ Extract audioMessage/imageMessage ──→ Baileys downloadContentFromMessage() ──→ File
+```
+
+WhatsApp encrypts media with a per-message key. The key is stored in the proto — Baileys handles decryption transparently.
+
+### Download a Voice Message
+
+1. **Find the message ID** via `whatsapp_history`:
+```
+whatsapp_history action=search chat="GROUP_JID" sender="PersonName" limit=10
+```
+Look for messages with `type: "voice"` or `type: "audio"`.
+
+2. **Download the audio** using a Node.js script (must run from the OpenClaw source dir for Baileys access):
+```bash
+cd /path/to/openclaw/source && node -e "
+const { downloadContentFromMessage } = require('@whiskeysockets/baileys');
+const Database = require('better-sqlite3');
+const fs = require('fs');
+const { pipeline } = require('stream/promises');
+
+async function main() {
+  const db = new Database('$HOME/.openclaw/data/whatsapp-history.db', { readonly: true });
+  const row = db.prepare('SELECT raw_json FROM messages WHERE id = ?').get('MESSAGE_ID_HERE');
+  const msg = JSON.parse(row.raw_json);
+  const audioMsg = msg.message.audioMessage;
+  const stream = await downloadContentFromMessage(audioMsg, 'audio');
+  await pipeline(stream, fs.createWriteStream('/tmp/voice-msg.ogg'));
+  console.log('Downloaded!');
+}
+main().catch(console.error);
+"
+```
+
+3. **Transcribe with Whisper** (or any STT):
+```bash
+ffmpeg -i /tmp/voice-msg.ogg -ar 16000 -ac 1 /tmp/voice-msg.wav -y
+whisper /tmp/voice-msg.wav --model base --language es --output_format txt --output_dir /tmp/
+cat /tmp/voice-msg.txt
+```
+
+### Download Other Media Types
+
+Same pattern, different message field and content type:
+
+| Media Type | Proto Field | Content Type |
+|------------|-------------|--------------|
+| Voice/Audio | `audioMessage` | `"audio"` |
+| Image | `imageMessage` | `"image"` |
+| Video | `videoMessage` | `"video"` |
+| Document | `documentMessage` | `"document"` |
+| Sticker | `stickerMessage` | `"sticker"` |
+
+Example for images:
+```javascript
+const imgMsg = msg.message.imageMessage;
+const stream = await downloadContentFromMessage(imgMsg, 'image');
+await pipeline(stream, fs.createWriteStream('/tmp/photo.jpg'));
+```
+
+### Important Notes
+
+- **Media URLs expire** — WhatsApp CDN links are temporary. Download soon after receiving, or Baileys will attempt a re-upload request (which requires an active socket connection).
+- **Active WhatsApp session recommended** — If the media URL has expired, Baileys needs the socket to request a fresh URL. Works best when WhatsApp is connected.
+- **Database path:** `~/.openclaw/data/whatsapp-history.db`
+- **Source dir required:** The download script needs Baileys (`@whiskeysockets/baileys`) and `better-sqlite3`, both available in the OpenClaw source tree.
+
+### Use Cases
+
+- Transcribe voice messages from group chats you monitor
+- Save important images/documents shared in groups
+- Create searchable transcripts of voice-heavy conversations
+- Analyze audio messages in languages you don't speak (Whisper supports 99 languages)
+
+---
+
+## Full History Resync (v1.5.0+)
+
+Pull your **entire WhatsApp message history** — months or years of messages — into the local database. This works by re-linking your WhatsApp device, which triggers WhatsApp's INITIAL_BOOTSTRAP sync (the same sync that happens when you first link a new device).
+
+### Why?
+
+WhatsApp's on-demand history fetch (`fetchMessageHistory`) is broken in Baileys (see [Issue #1934](https://github.com/WhiskeySockets/Baileys/issues/1934)). The only reliable way to get old messages is through the initial device link sync. This feature automates the entire process safely.
+
+### How It Works
+
+```
+Agent triggers resync → Auth cleared (backup saved) → Listener closed
+→ Gateway enters QR wait loop → User scans QR in webchat Channels tab
+→ WhatsApp sends INITIAL_BOOTSTRAP → Live capture stores everything to SQLite
+```
+
+### Setup
+
+Install the `whatsapp-resync` plugin:
+
+1. Copy the plugin to `~/.openclaw/extensions/whatsapp-resync/`
+2. Add to `openclaw.json`:
+```json
+{
+  "plugins": [
+    { "name": "whatsapp-resync", "path": "~/.openclaw/extensions/whatsapp-resync" }
+  ]
+}
+```
+3. Restart the gateway.
+
+### Endpoints
+
+| Endpoint | Method | Description |
+|----------|--------|-------------|
+| `/api/whatsapp/resync` | POST | Trigger resync: backs up auth, clears credentials, closes listener |
+| `/api/whatsapp/resync/restore` | POST | Restore from backup if something goes wrong |
+
+### Trigger a Resync
+
+```bash
+curl -X POST http://localhost:3120/api/whatsapp/resync
+```
+
+Response:
+```json
+{
+  "ok": true,
+  "message": "WhatsApp auth cleared and listener closed...",
+  "backupDir": "~/.openclaw/credentials/whatsapp/default.resync-backup.2026-02-13T15-11-32",
+  "filesDeleted": 3532
+}
+```
+
+### Complete the Re-link
+
+1. Open the webchat → **Channels** tab → scan the QR code with your phone
+2. On your phone: WhatsApp → Settings → Linked Devices → Link a Device
+3. Scan the QR code
+4. Wait for the initial sync to complete (1-5 minutes depending on history size)
+
+### Verify Results
+
+```
+whatsapp_history action=stats
+```
+
+A successful resync typically pulls thousands of messages spanning months or years.
+
+### Restore from Backup
+
+If something goes wrong, restore the previous auth state:
+
+```bash
+# Restore latest backup
+curl -X POST http://localhost:3120/api/whatsapp/resync/restore
+
+# Restore specific backup
+curl -X POST http://localhost:3120/api/whatsapp/resync/restore \
+  -H 'Content-Type: application/json' \
+  -d '{"backupDir": "/path/to/backup"}'
+```
+
+### Safety
+
+- **Automatic backup**: Auth credentials are backed up before deletion
+- **No data loss**: Only auth state is cleared; existing messages in SQLite are preserved
+- **Restore endpoint**: One-click rollback to previous state
+- **Non-destructive**: Your WhatsApp account is unaffected; only the linked device session changes
+
+### Real-World Results
+
+In testing, a resync pulled:
+- **17,609 messages** (up from 3,242)
+- **1,229 chats** (up from 57)
+- **4,077 contacts**
+- History spanning **3+ years** (back to September 2022)
 
 ---
 
