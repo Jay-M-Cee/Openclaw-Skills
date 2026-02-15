@@ -1,11 +1,17 @@
 {
   "owner": "unima3x",
   "slug": "agirails",
-  "displayName": "AGIRAILS Payments",
+  "displayName": "AGIRAILS Escrow Payments",
   "latest": {
-    "version": "2.1.0",
-    "publishedAt": 1770136793752,
-    "commit": "https://github.com/clawdbot/skills/commit/7de6dabf13dcc4f8f34cd1532a094a1f7f7b68b6"
+    "version": "3.0.3",
+    "publishedAt": 1771169518851,
+    "commit": null
   },
-  "history": []
+  "history": [
+    {
+      "version": "2.1.0",
+      "publishedAt": 1770136793752,
+      "commit": "https://github.com/clawdbot/skills/commit/7de6dabf13dcc4f8f34cd1532a094a1f7f7b68b6"
+    }
+  ]
 }
