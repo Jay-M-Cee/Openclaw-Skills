@@ -1,7 +1,7 @@
 ---
 name: siphonclaw
 description: Document intelligence pipeline with visual search, OCR, and field capture
-version: 1.0.0
+version: 1.2.0
 metadata:
   siphonclaw:
     emoji: "\U0001F50D"
@@ -198,6 +198,45 @@ Get pipeline health, ingestion statistics, model availability, and cost tracking
 }
 ```
 
+## MCP Server
+
+SiphonClaw runs as an MCP server that any MCP-compatible client (OpenClaw agents, Claude Desktop, etc.) can connect to.
+
+```bash
+# Start the MCP server (stdio transport - default for OpenClaw)
+python mcp_server.py
+
+# Start with SSE transport (for HTTP-based clients)
+python mcp_server.py --sse --port 8000
+```
+
+**OpenClaw agent config (`~/.openclaw/openclaw.json`):**
+
+```json
+{
+  "mcpServers": {
+    "siphonclaw": {
+      "command": "python",
+      "args": ["mcp_server.py"],
+      "cwd": "/path/to/siphonclaw"
+    }
+  }
+}
+```
+
+**Claude Desktop config (`claude_desktop_config.json`):**
+
+```json
+{
+  "mcpServers": {
+    "siphonclaw": {
+      "command": "python",
+      "args": ["/path/to/siphonclaw/mcp_server.py"]
+    }
+  }
+}
+```
+
 ## Setup
 
 ### Mode A: Hybrid Local + Cloud (Recommended)
@@ -208,9 +247,8 @@ Local models handle ingestion (OCR + embeddings) for free. Cloud APIs handle int
 
 ```bash
 # 1. Install SiphonClaw
-pip install siphonclaw
-# or: openclaw skill install siphonclaw
-# or: git clone https://github.com/openclaw/siphonclaw && pip install -r requirements.txt
+git clone https://github.com/curtisgc1/siphonclaw.git && cd siphonclaw
+pip install -r requirements.txt
 
 # 2. Install Ollama and pull local models (~10 GB total)
 curl -fsSL https://ollama.com/install.sh | sh
