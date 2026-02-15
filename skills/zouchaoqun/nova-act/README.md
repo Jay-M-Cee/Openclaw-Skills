@@ -1,28 +1,8 @@
-# Nova Act Usability Testing Skill v1.0.2
+# Nova Act Usability Testing Skill v2.0.0
 
 AI-orchestrated usability testing for websites using Amazon Nova Act browser automation.
 
-## ⚠️ Prerequisites & Credentials
-
-**This skill requires an Amazon Nova Act API key.**
-
-| Requirement | Details |
-|-------------|---------|
-| **API Key** | Nova Act API key from [AWS Console](https://console.aws.amazon.com/) |
-| **Config Location** | `~/.openclaw/config/nova-act.json` |
-| **Format** | `{"apiKey": "your-nova-act-api-key-here"}` |
-
-## 🔒 Data & Privacy Notice
-
-**What this skill accesses:**
-- **Reads:** `~/.openclaw/config/nova-act.json` (your API key)
-- **Writes:** `./nova_act_logs/`, `./test_results_adaptive.json`, `./nova_act_usability_report.html`
-
-**Trace files contain screenshots and full page content.** Run tests only on non-production environments. Traces may capture PII visible on tested pages.
-
----
-
-## Features
+## What's New in v2.0.0
 
 🎯 **Agent-Driven Interpretation**: The script collects raw data, the AI agent (you) interprets responses and generates reports. No hardcoded regex, no extra API calls.
 
@@ -30,6 +10,8 @@ AI-orchestrated usability testing for websites using Amazon Nova Act browser aut
 1. **Collect** - Script runs Nova Act, captures raw responses
 2. **Interpret** - Agent reads JSON, determines goal achievement
 3. **Report** - Agent generates HTML with accurate pass/fail status
+
+See [RELEASE_NOTES_2.0.0.md](RELEASE_NOTES_2.0.0.md) for full details.
 
 ## What It Does
 
@@ -87,25 +69,45 @@ The skill will **ALWAYS:**
 
 ## Installation
 
-### Step 1: Install Python packages
+### Automatic Setup (Recommended)
+
+The skill includes an automatic setup script that handles all dependencies:
 
 ```bash
+# Navigate to skill directory
+cd ~/.openclaw/skills/nova-act-usability
+
+# Run setup
+./setup.sh
+```
+
+**The setup script will:**
+1. ✅ Install Python packages (nova-act, pydantic, playwright)
+2. ✅ Download Playwright browsers (~300MB, may take a few minutes)
+3. ✅ Create config file template at `~/.openclaw/config/nova-act.json`
+4. ✅ Verify installation
+5. ℹ️  Provide instructions for any manual steps needed
+
+**After setup:**
+1. Get your Nova Act API key from [AWS Console](https://console.aws.amazon.com/)
+2. Edit `~/.openclaw/config/nova-act.json`
+3. Replace `"your-nova-act-api-key-here"` with your actual key
+
+### Manual Installation (If Automatic Fails)
+
+If the automatic setup has issues, install manually:
+
+```bash
+# 1. Install Python packages
 pip3 install nova-act pydantic playwright
-```
 
-### Step 2: Install Playwright browser
-
-```bash
+# 2. Install Playwright browsers
 playwright install chromium
-```
 
-> **Note:** On Linux, you may also need system dependencies:
-> `sudo playwright install-deps chromium`
+# 3. (Optional) Install system dependencies on Linux
+sudo playwright install-deps chromium
 
-### Step 3: Configure API key
-
-```bash
-# Create config directory and file
+# 4. Create config file
 mkdir -p ~/.openclaw/config
 cat > ~/.openclaw/config/nova-act.json << EOF
 {
@@ -113,11 +115,6 @@ cat > ~/.openclaw/config/nova-act.json << EOF
 }
 EOF
 ```
-
-Then:
-1. Get your Nova Act API key from [AWS Console](https://console.aws.amazon.com/)
-2. Edit `~/.openclaw/config/nova-act.json`
-3. Replace `"your-nova-act-api-key-here"` with your actual key
 
 ### Requirements
 
@@ -154,7 +151,7 @@ The agent will:
 - Links to Nova Act HTML trace files for session replay
 - Recommendations for improvements
 
-## How It Works
+## How It Works (v2.0.0 Architecture)
 
 ### Phase 1: Data Collection (Script)
 1. **Page Analysis**: Captures title, navigation, key elements

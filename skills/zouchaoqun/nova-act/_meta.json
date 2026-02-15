@@ -1,13 +1,18 @@
 {
   "owner": "zouchaoqun",
   "slug": "nova-act",
-  "displayName": "Website Usability Testing using Nova Act",
+  "displayName": "Website Usability Test Nova Act",
   "latest": {
-    "version": "1.1.7",
-    "publishedAt": 1771142693959,
-    "commit": "https://github.com/openclaw/skills/commit/1badc6fa0e1a84250db6824516ca1ae01b9708af"
+    "version": "1.2.2",
+    "publishedAt": 1771142952165,
+    "commit": null
   },
   "history": [
+    {
+      "version": "1.1.7",
+      "publishedAt": 1771142693959,
+      "commit": "https://github.com/openclaw/skills/commit/1badc6fa0e1a84250db6824516ca1ae01b9708af"
+    },
     {
       "version": "1.0.9",
       "publishedAt": 1771142139214,

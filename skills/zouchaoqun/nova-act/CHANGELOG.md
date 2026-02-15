@@ -244,9 +244,9 @@ Now we interpret responses semantically to determine if the **goal was actually 
 - **URL parameter passing**: Removed global variable mutation
 
 ### 📦 Installation & Setup
-- Manual installation via `pip3 install nova-act pydantic playwright`
-- Playwright browser: `playwright install chromium`
-- Config file at `~/.openclaw/config/nova-act.json`
+- Automatic setup script (`setup.sh`) - no sudo prompts
+- Playwright browser installation handled automatically
+- Config file template auto-created at `~/.openclaw/config/nova-act.json`
 - 60-second status updates during test execution
 
 ### 📝 Documentation

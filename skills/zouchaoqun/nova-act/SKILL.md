@@ -1,52 +1,14 @@
 ---
-name: website-usability-test-nova-act
-version: 1.1.7
-description: AI-orchestrated usability testing with digital twin personas powered by Amazon Nova Act.
-metadata:
-  openclaw:
-    requires:
-      config:
-        - ~/.openclaw/config/nova-act.json
-      bins:
-        - python3
+name: nova-act-usability
+version: 2.0.0
+description: AI-orchestrated usability testing using Amazon Nova Act. The agent generates personas, runs tests to collect raw data, interprets responses to determine goal achievement, and generates HTML reports. Tests real user workflows (booking, checkout, posting) with safety guardrails. Use when asked to "test website usability", "run usability test", "generate usability report", "evaluate user experience", "test checkout flow", "test booking process", or "analyze website UX".
 ---
 
-# Website Usability Testing using Nova Act v1.1.7
+# Nova Act Usability Testing v2.0.0
 
 **AI-orchestrated** usability testing with digital twin personas powered by Amazon Nova Act.
 
-## ⚠️ Prerequisites & Credentials
-
-**This skill requires an Amazon Nova Act API key.**
-
-| Requirement | Details |
-|-------------|---------|
-| **API Key** | Nova Act API key from [AWS Console](https://console.aws.amazon.com/) |
-| **Config Location** | `~/.openclaw/config/nova-act.json` |
-| **Format** | `{"apiKey": "your-nova-act-api-key-here"}` |
-| **Dependencies** | `pip3 install nova-act pydantic playwright` |
-| **Browser** | `playwright install chromium` (~300MB download) |
-
-## 🔒 Data & Privacy Notice
-
-**What this skill accesses:**
-- **Reads:** `~/.openclaw/config/nova-act.json` (your API key)
-- **Writes:** `./nova_act_logs/` (trace files with screenshots), `./test_results_adaptive.json`, `./nova_act_usability_report.html`
-
-**What trace files contain:**
-- Screenshots of every page visited
-- Full page content (HTML, text)
-- Browser actions and AI decisions
-
-**Recommendations:**
-- Run tests only on **non-production** or **test environments**
-- Be aware traces may capture **PII or sensitive data** visible on tested pages
-- Review/delete trace files after use if they contain sensitive content
-- Consider running in a **sandboxed environment** (container/VM) for untrusted sites
-
----
-
-## Features
+## What's New in 2.0.0
 
 **Agent-Driven Interpretation**: The script no longer interprets responses. YOU (the agent) must:
 1. Run the test script → collect raw data
@@ -85,10 +47,12 @@ try:
     import nova_act
     print("✅ Dependencies ready")
 except ImportError:
-    print("📦 Dependencies not installed. Please run:")
-    print("   pip3 install nova-act pydantic playwright")
-    print("   playwright install chromium")
-    sys.exit(1)
+    print("📦 Installing dependencies (one-time setup, ~3 minutes)...")
+    skill_dir = os.path.expanduser("~/.openclaw/skills/nova-act-usability")
+    result = subprocess.run(["./setup.sh"], cwd=skill_dir, capture_output=True, text=True)
+    if result.returncode != 0:
+        print(f"❌ Setup failed. Run manually: cd {skill_dir} && ./setup.sh")
+        sys.exit(1)
 
 # Step 2: Verify Nova Act API key
 config_file = os.path.expanduser("~/.openclaw/config/nova-act.json")
@@ -514,33 +478,44 @@ nova.act_get("List the navigation menu items visible on this page")
 # Check if nova-act is installed
 python3 -c "import nova_act" 2>/dev/null
 if [ $? -ne 0 ]; then
-    echo "Dependencies not installed. Please run:"
-    echo "  pip3 install nova-act pydantic playwright"
-    echo "  playwright install chromium"
-    exit 1
-fi
-
-# Check API key
-if ! grep -q '"apiKey":.*[^"]' ~/.openclaw/config/nova-act.json; then
-    echo "⚠️  Please add your Nova Act API key to ~/.openclaw/config/nova-act.json"
-    exit 1
+    echo "Dependencies not installed. Running setup..."
+    cd ~/.openclaw/skills/nova-act-usability
+    ./setup.sh
+    
+    # After setup, remind user to add API key if needed
+    if ! grep -q '"apiKey":.*[^"]' ~/.openclaw/config/nova-act.json; then
+        echo "⚠️  Please add your Nova Act API key to ~/.openclaw/config/nova-act.json"
+        exit 1
+    fi
 fi
 ```
 
 **Or use Python to check:**
 
 ```python
+import subprocess
 import sys
+import os
 
 # Check if nova-act is installed
 try:
     import nova_act
     print("✅ Dependencies already installed")
 except ImportError:
-    print("📦 Dependencies not installed. Please run:")
-    print("   pip3 install nova-act pydantic playwright")
-    print("   playwright install chromium")
-    sys.exit(1)
+    print("📦 Installing dependencies...")
+    skill_dir = os.path.expanduser("~/.openclaw/skills/nova-act-usability")
+    setup_script = os.path.join(skill_dir, "setup.sh")
+    
+    if os.path.exists(setup_script):
+        result = subprocess.run([setup_script], cwd=skill_dir)
+        if result.returncode != 0:
+            print("❌ Setup failed. Please run manually:")
+            print(f"   cd {skill_dir}")
+            print(f"   ./setup.sh")
+            sys.exit(1)
+    else:
+        print("❌ Setup script not found. Dependencies must be installed manually.")
+        sys.exit(1)
 ```
 
 ### Running Tests (After Dependencies Confirmed)
@@ -581,10 +556,10 @@ Full usability tests with 3 personas × 3 goals = 9 tests can take 10-20+ minute
 personas = [{"name": "Test User", "archetype": "casual", ...}]
 ```
 
-### What YOU (the AI) Need to Do:
+### What You (the AI) Need to Do:
 
 1. **Check dependencies** (run the check above)
-2. **If missing**: Tell user to run `pip3 install nova-act pydantic playwright && playwright install chromium`
+2. **If missing**: Run setup.sh and inform user about API key
 3. **If present**: Extract the website URL from user's request
 4. **Run the test** with the URL as argument
 5. **Monitor progress** (status updates every 60 seconds)
@@ -821,7 +796,7 @@ Professional HTML template for usability reports.
 
 **This skill requires dependencies that must be installed before use.**
 
-### For AI Agents: Dependency Check
+### For AI Agents: Automatic Dependency Check
 
 **ALWAYS check if dependencies are installed before running tests:**
 
@@ -829,35 +804,49 @@ Professional HTML template for usability reports.
 # Quick dependency check
 try:
     import nova_act
-    print("✅ Dependencies installed")
+    # Dependencies installed ✅
 except ImportError:
-    print("📦 Dependencies not installed. Please run:")
-    print("   pip3 install nova-act pydantic playwright")
-    print("   playwright install chromium")
-    print("")
+    # Need to run setup ⚠️
+    import subprocess
+    import os
+    
+    skill_dir = os.path.expanduser("~/.openclaw/skills/nova-act-usability")
+    setup_script = os.path.join(skill_dir, "setup.sh")
+    
+    print("📦 Installing Nova Act dependencies (one-time setup)...")
     print("This will take 2-3 minutes to download browsers (~300MB)")
+    
+    subprocess.run([setup_script], cwd=skill_dir, check=True)
+    
+    print("✅ Setup complete!")
+    print("⚠️  User needs to add API key to ~/.openclaw/config/nova-act.json")
 ```
 
 ### For Users: One-Time Setup
 
-**Step 1: Install Python packages**
+If this is your first time using the skill:
+
+```bash
+cd ~/.openclaw/skills/nova-act-usability
+./setup.sh
+```
+
+**The setup script will:**
+- ✅ Install Python dependencies (nova-act, pydantic, playwright)
+- ✅ Download Playwright browsers (~300MB, 2-3 minutes)
+- ✅ Create config file template
+
+**After setup:**
+1. Get your Nova Act API key from [AWS Console](https://console.aws.amazon.com/)
+2. Edit `~/.openclaw/config/nova-act.json`
+3. Replace `"your-nova-act-api-key-here"` with your actual key
+
+### Manual Setup (If Automatic Fails)
+
 ```bash
 pip3 install nova-act pydantic playwright
-```
-
-**Step 2: Install Playwright browser**
-```bash
 playwright install chromium
 ```
-
-**Step 3: Configure API key**
-1. Get your Nova Act API key from [AWS Console](https://console.aws.amazon.com/)
-2. Create config file:
-```bash
-mkdir -p ~/.openclaw/config
-echo '{"apiKey": "your-key-here"}' > ~/.openclaw/config/nova-act.json
-```
-3. Replace `your-key-here` with your actual Nova Act API key
 
 ## Example: AI-Orchestrated Test
 

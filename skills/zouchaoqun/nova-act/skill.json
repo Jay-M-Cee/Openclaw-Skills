@@ -1,6 +1,6 @@
 {
   "name": "nova-act-usability",
-  "version": "1.0.2",
+  "version": "2.0.0",
   "description": "AI-orchestrated usability testing with workflow testing (booking, checkout, posting) and safety guardrails using Amazon Nova Act",
   "author": "Adi",
   "license": "MIT",
@@ -27,5 +27,9 @@
     }
   },
   "entrypoint": "SKILL.md",
-  "category": "Testing & Automation"
+  "category": "Testing & Automation",
+  "postInstall": {
+    "script": "./setup.sh",
+    "description": "Install Nova Act dependencies and Playwright browsers"
+  }
 }
