@@ -1,6 +1,21 @@
 ---
 name: post-bridge-social-manager
+version: 1.0.3
+title: Social Media Assistant (via post-bridge.com)
 description: Turn your OpenClaw into an autonomous social media manager using Post Bridge API. Use when scheduling, posting, or managing content across TikTok, Instagram Reels, YouTube Shorts, Twitter/X, LinkedIn, Pinterest, Facebook, Threads, or Bluesky. Covers media upload, post creation, scheduling, platform-specific configs, draft mode, and post result tracking.
+license: MIT
+author: Jack Friks <jack@frikit.net>
+homepage: https://clawhub.ai/jackfriks/post-bridge-social-manager
+repository: https://github.com/jackfriks/post-bridge-social-manager
+keywords: social-media, automation, post-bridge, tiktok, instagram, youtube, twitter, linkedin
+metadata:
+  openclaw:
+    requires:
+      env:
+        - POST_BRIDGE_API_KEY
+      bins:
+        - ffmpeg
+    primaryEnv: POST_BRIDGE_API_KEY
 ---
 
 # Post Bridge Social Manager
