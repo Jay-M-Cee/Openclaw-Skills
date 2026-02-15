@@ -1,0 +1,11 @@
+{
+  "owner": "wangyendt",
+  "slug": "adb-logcat-reader",
+  "displayName": "Pywayne Adb Logcat Reader",
+  "latest": {
+    "version": "0.1.0",
+    "publishedAt": 1771106000887,
+    "commit": null
+  },
+  "history": []
+}
