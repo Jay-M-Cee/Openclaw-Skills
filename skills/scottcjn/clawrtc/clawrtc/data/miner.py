@@ -1,9 +1,18 @@
 #!/usr/bin/env python3
 """
-RustChain Local x86 Miner - Modern Ryzen
+RustChain Local Miner — ClawRTC
+Auto-detects hardware, runs fingerprint checks, earns RTC tokens.
 """
 import os, sys, json, time, hashlib, uuid, requests, socket, subprocess, platform, statistics, re
 from datetime import datetime
+
+# Import fingerprint checks (bundled alongside this file)
+try:
+    sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+    from fingerprint_checks import validate_all_checks
+    FINGERPRINT_AVAILABLE = True
+except ImportError:
+    FINGERPRINT_AVAILABLE = False
 
 NODE_URL = "https://bulbous-bouffant.metalseed.net"
 BLOCK_TIME = 600  # 10 minutes
@@ -17,15 +26,37 @@ class LocalMiner:
         self.attestation_valid_until = 0
         self.last_entropy = {}
 
+        self.fingerprint_data = {}
+
         print("="*70)
-        print("RustChain Local Miner - Ryzen 5 5500")
+        print("ClawRTC Miner — RustChain Network")
         print("="*70)
         print(f"Node: {self.node_url}")
         print(f"Wallet: {self.wallet}")
         print("="*70)
 
+        # Run fingerprint checks on startup
+        if FINGERPRINT_AVAILABLE:
+            print("\nRunning hardware fingerprint checks...")
+            try:
+                all_passed, results = validate_all_checks(include_rom_check=False)
+                self.fingerprint_data = {
+                    "all_passed": all_passed,
+                    "checks": results
+                }
+                if all_passed:
+                    print("All fingerprint checks PASSED")
+                else:
+                    failed = [k for k, v in results.items() if not v.get("passed")]
+                    print(f"WARNING: Fingerprint checks failed: {failed}")
+            except Exception as e:
+                print(f"Fingerprint checks error: {e}")
+                self.fingerprint_data = {"all_passed": False, "error": str(e)}
+        else:
+            print("Fingerprint checks not available (fingerprint_checks.py not found)")
+
     def _gen_wallet(self):
-        data = f"ryzen5-{uuid.uuid4().hex}-{time.time()}"
+        data = f"claw-{uuid.uuid4().hex}-{time.time()}"
         return hashlib.sha256(data.encode()).hexdigest()[:38] + "RTC"
 
     def _run_cmd(self, cmd):
@@ -103,14 +134,42 @@ class LocalMiner:
             "samples_preview": samples[:12],
         }
 
+    def _detect_arch(self):
+        """Detect hardware architecture for RustChain multiplier classification."""
+        machine = platform.machine().lower()
+        cpu = self._run_cmd("lscpu | grep 'Model name' | cut -d: -f2 | xargs") or ""
+        cpu_lower = cpu.lower()
+
+        if "ppc" in machine or "powerpc" in machine:
+            if "g5" in cpu_lower or "970" in cpu_lower:
+                return "x86", "g5"
+            elif "g4" in cpu_lower or "7450" in cpu_lower or "7447" in cpu_lower:
+                return "x86", "g4"
+            elif "g3" in cpu_lower or "750" in cpu_lower:
+                return "x86", "g3"
+            return "powerpc", "powerpc"
+        elif "arm" in machine or "aarch64" in machine:
+            if platform.system() == "Darwin":
+                brand = self._run_cmd("sysctl -n machdep.cpu.brand_string") or ""
+                if any(x in brand.lower() for x in ["m1", "m2", "m3", "m4"]):
+                    return "arm", "apple_silicon"
+            return "arm", "modern"
+        else:
+            if "core 2" in cpu_lower or "core2" in cpu_lower:
+                return "x86", "core2duo"
+            elif "pentium" in cpu_lower:
+                return "x86", "pentium4"
+            return "x86", "modern"
+
     def _get_hw_info(self):
-        """Collect hardware info"""
+        """Collect hardware info with auto-detection."""
+        family, arch = self._detect_arch()
         hw = {
             "platform": platform.system(),
             "machine": platform.machine(),
             "hostname": socket.gethostname(),
-            "family": "x86",
-            "arch": "modern"  # Less than 10 years old
+            "family": family,
+            "arch": arch,
         }
 
         # Get CPU
@@ -161,7 +220,7 @@ class LocalMiner:
         # Submit attestation
         attestation = {
             "miner": self.wallet,
-            "miner_id": f"ryzen5-{self.hw_info['hostname']}",
+            "miner_id": f"claw-{self.hw_info['hostname']}",
             "nonce": nonce,
             "report": {
                 "nonce": nonce,
@@ -174,7 +233,7 @@ class LocalMiner:
             "device": {
                 "family": self.hw_info["family"],
                 "arch": self.hw_info["arch"],
-                "model": "AMD Ryzen 5 5500",
+                "model": self.hw_info.get("cpu", "Unknown"),
                 "cpu": self.hw_info["cpu"],
                 "cores": self.hw_info["cores"],
                 "memory_gb": self.hw_info["memory_gb"]
@@ -182,7 +241,8 @@ class LocalMiner:
             "signals": {
                 "macs": self.hw_info.get("macs", [self.hw_info["mac"]]),
                 "hostname": self.hw_info["hostname"]
-            }
+            },
+            "fingerprint": self.fingerprint_data if self.fingerprint_data else None
         }
 
         try:
@@ -195,8 +255,9 @@ class LocalMiner:
                     self.attestation_valid_until = time.time() + 580
                     print(f"✅ Attestation accepted!")
                     print(f"   CPU: {self.hw_info['cpu']}")
-                    print(f"   Family: x86/modern")
-                    print(f"   Expected Weight: 1.0x")
+                    print(f"   Arch: {self.hw_info['family']}/{self.hw_info['arch']}")
+                    fp_status = "PASSED" if self.fingerprint_data.get("all_passed") else "N/A"
+                    print(f"   Fingerprint: {fp_status}")
                     return True
                 else:
                     print(f"❌ Rejected: {result}")
@@ -219,7 +280,7 @@ class LocalMiner:
 
         payload = {
             "miner_pubkey": self.wallet,
-            "miner_id": f"ryzen5-{self.hw_info['hostname']}",
+            "miner_id": f"claw-{self.hw_info['hostname']}",
             "device": {
                 "family": self.hw_info["family"],
                 "arch": self.hw_info["arch"]
