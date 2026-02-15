@@ -1,18 +1,16 @@
 ---
 name: skill-cleaner
-version: 2.3.1
+version: 2.4.0
 description: Automatically verify "suspicious" skills via VirusTotal and add them to the security allowlist via the Bridge.
 user-invocable: true
-requires:
-  env: ["VIRUSTOTAL_API_KEY"]
-  bin: ["openclaw"]
 metadata:
   {
     "openclaw":
       {
         "emoji": "🧹",
-        "category": "security"
-      }
+        "requires": { "env": ["VIRUSTOTAL_API_KEY"], "bin": ["openclaw"] },
+        "category": "security",
+      },
   }
 command-dispatch: tool
 command_tool: exec

@@ -3,11 +3,16 @@
   "slug": "skill-cleaner",
   "displayName": "Skill Cleaner",
   "latest": {
-    "version": "2.3.1",
-    "publishedAt": 1771196925274,
-    "commit": "https://github.com/openclaw/skills/commit/0bd1eb3503748ef3a3e556ec74e884f2c8105cee"
+    "version": "2.4.0",
+    "publishedAt": 1771197086530,
+    "commit": null
   },
   "history": [
+    {
+      "version": "2.3.1",
+      "publishedAt": 1771196925274,
+      "commit": "https://github.com/openclaw/skills/commit/0bd1eb3503748ef3a3e556ec74e884f2c8105cee"
+    },
     {
       "version": "2.1.0",
       "publishedAt": 1771195809595,

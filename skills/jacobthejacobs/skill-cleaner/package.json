@@ -1,6 +1,6 @@
 {
   "name": "skill-cleaner",
-  "version": "2.3.1",
+  "version": "2.4.0",
   "description": "Hardened security utility to verify suspicious skills via VirusTotal and the Security Bridge.",
   "keywords": ["security", "virus-total", "trust", "cleaner"],
   "scripts": {

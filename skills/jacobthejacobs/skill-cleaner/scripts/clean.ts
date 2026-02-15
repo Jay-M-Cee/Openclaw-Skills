@@ -151,7 +151,6 @@ async function run() {
     for (const relFile of filesToExamine) {
         const absolutePath = path.resolve(workspaceRoot, relFile);
         console.log(`\n🔍 Examining: ${relFile}`);
-        console.log(`   Absolute Path: ${absolutePath}`);
         
         try {
             const hash = await calculateHash(absolutePath);
