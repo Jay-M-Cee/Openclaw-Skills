@@ -3,9 +3,15 @@
   "slug": "alchemy-web3",
   "displayName": "Alchemy Web3",
   "latest": {
-    "version": "1.0.1",
-    "publishedAt": 1771178863345,
-    "commit": "https://github.com/openclaw/skills/commit/35b8859e2faab36b29ec3ab53fbd227d6b3e5d33"
+    "version": "1.0.2",
+    "publishedAt": 1771178986977,
+    "commit": null
   },
-  "history": []
+  "history": [
+    {
+      "version": "1.0.1",
+      "publishedAt": 1771178863345,
+      "commit": "https://github.com/openclaw/skills/commit/35b8859e2faab36b29ec3ab53fbd227d6b3e5d33"
+    }
+  ]
 }
