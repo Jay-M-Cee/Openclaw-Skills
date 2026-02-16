@@ -2,7 +2,7 @@
 name: clawcontract
 description: AI-powered smart contract generator, analyzer, and deployer for BNB Chain (BSC/opBNB). Use when you need to generate Solidity from natural language, run security analysis, compile and deploy contracts, verify source on BscScan/opBNBScan, interact with deployed contracts, or run the full generate→analyze→deploy→verify pipeline. Supports bsc-mainnet, bsc-testnet, opbnb-mainnet, opbnb-testnet.
 homepage: https://github.com/cvpfus/clawcontract
-metadata: {"openclaw":{"requires":{"bins":["clawcontract"],"env":["OPENROUTER_API_KEY"]}}}
+metadata: {"openclaw":{"requires":{"bins":["clawcontract"],"env":["CLAWCONTRACT_OPENROUTER_API_KEY","CLAWCONTRACT_PRIVATE_KEY","CLAWCONTRACT_BSCSCAN_API_KEY"]},"install":[{"id":"clawcontract","kind":"node","package":"clawcontract","bins":["clawcontract"],"label":"Install clawcontract (npm)"}]}}
 ---
 
 # ClawContract
@@ -29,13 +29,14 @@ Interact with a deployed contract:
 
     clawcontract interact 0xABC... name --chain bsc-testnet
 
-## Setup
+List deployment records:
 
-Generate `.env` non-interactively:
+    clawcontract list
+    clawcontract list --chain bsc-testnet
 
-    clawcontract setup --openrouter-key <key>
+Delete a deployment record:
 
-Flags: `--private-key`, `--openrouter-key`, `--openrouter-model`, `--bscscan-key`.
+    clawcontract delete 0xABC...def
 
 ## References
 
@@ -54,12 +55,14 @@ Default: `bsc-testnet`.
 
 ## Env Vars
 
+Configure via `docker-compose.yml` or set directly in the environment.
+
 | Variable | Required | Purpose |
 |----------|----------|---------|
-| `OPENROUTER_API_KEY` | Yes | AI contract generation |
-| `PRIVATE_KEY` | For deploy | Wallet for deployment — must be supplied by user |
-| `BSCSCAN_API_KEY` | For verify | Contract verification on BscScan/opBNBScan |
-| `OPENROUTER_MODEL` | No | Model override (default: anthropic/claude-sonnet-4-20250514) |
+| `CLAWCONTRACT_OPENROUTER_API_KEY` | Yes | AI contract generation |
+| `CLAWCONTRACT_PRIVATE_KEY` | For deploy | Wallet for deployment — must be supplied by user |
+| `CLAWCONTRACT_BSCSCAN_API_KEY` | For verify | Contract verification on BscScan/opBNBScan |
+| `CLAWCONTRACT_OPENROUTER_MODEL` | No | Model override (default: anthropic/claude-sonnet-4-20250514) |
 
 ## Artifacts
 
@@ -68,15 +71,16 @@ The CLI writes the following files to disk during normal operation:
 | Path | When | Contents |
 |------|------|----------|
 | `contracts/*.sol` | `generate`, `full` | Generated Solidity source |
-| `.env` | `setup` | Environment variable file (user-initiated only) |
 | `.deployments/*.json` | `deploy`, `full` | Deployment metadata (address, chain, tx hash) |
 
 ## Safety
 
-- **No auto-generated keys.** `PRIVATE_KEY` must be explicitly provided by the user via `setup --private-key` or by setting the env var directly. The CLI will not generate or persist a private key on its own.
-- Deployment to mainnet chains shows an extra confirmation warning.
-- The CLI is fully non-interactive — all commands run without user prompts.
-- High-severity analysis issues trigger automatic fix attempts (up to 3) before deploy.
-- Use `--skip-deploy` with the `full` command to review generated contracts and analysis results before deploying.
-- Use `--skip-fix` to disable automatic fix attempts on high-severity issues.
+- **No auto-generated keys.** `CLAWCONTRACT_PRIVATE_KEY` must be explicitly provided by the user via environment variable. The CLI will not generate or persist a private key on its own.
+- **Mainnet warning (non-blocking).** Deployment to mainnet chains prints a bold warning about real costs but does **not** block on a prompt — the deploy proceeds automatically. This is by design: the CLI targets agent-driven pipelines where stdin is unavailable. Users control mainnet exposure by choosing `--chain` explicitly (default is `bsc-testnet`).
+- **`delete` confirmation prompt.** `delete` is the sole interactive command — it shows deployment details and asks `Remove this deployment? (y/N)`. Use `--force` to skip the prompt (agent-friendly). This is safe because `delete` only removes local metadata; it cannot affect on-chain state.
+- **Automatic fix attempts.** During `full`, if high-severity issues are found the AI attempts to fix and re-analyze (up to 3 rounds). This means the agent may modify generated source before deploy. Mitigations:
+  - Use `--skip-fix` to disable auto-fix entirely.
+  - Use `--skip-deploy` to review the final source and analysis before any on-chain action.
+  - Fixes only target the generated file in `contracts/`; no other files are modified.
+- **Accidental live-deploy risk.** Because `CLAWCONTRACT_PRIVATE_KEY` is mandatory for deploy and the default chain is `bsc-testnet`, accidental mainnet deploys require the user to **both** set a funded mainnet key **and** explicitly pass `--chain bsc-mainnet` or `--chain opbnb-mainnet`. Neither can happen silently.
 - Prefer testnet chains and throwaway keys for initial trials.
