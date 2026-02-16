@@ -248,6 +248,195 @@ Content-Type: application/json
 }
 ```
 
+## File Uploads
+
+Google Drive supports three upload types depending on file size and whether you need to include metadata.
+
+### Simple Upload (Media)
+
+For files up to 5MB when you don't need to set metadata.
+
+```bash
+POST /google-drive/upload/drive/v3/files?uploadType=media
+Content-Type: text/plain
+
+<file content>
+```
+
+**Python Example:**
+```python
+import urllib.request, os
+
+file_content = b'Hello, this is file content!'
+
+url = 'https://gateway.maton.ai/google-drive/upload/drive/v3/files?uploadType=media'
+req = urllib.request.Request(url, data=file_content, method='POST')
+req.add_header('Authorization', f'Bearer {os.environ["MATON_API_KEY"]}')
+req.add_header('Content-Type', 'text/plain')
+response = urllib.request.urlopen(req)
+```
+
+### Multipart Upload
+
+For files up to 5MB when you need to include metadata (name, description, etc.).
+
+```bash
+POST /google-drive/upload/drive/v3/files?uploadType=multipart
+Content-Type: multipart/related; boundary=boundary
+
+--boundary
+Content-Type: application/json; charset=UTF-8
+
+{"name": "myfile.txt", "description": "My file"}
+--boundary
+Content-Type: text/plain
+
+<file content>
+--boundary--
+```
+
+**Python Example:**
+```python
+import urllib.request, os, json
+
+boundary = '----Boundary'
+metadata = json.dumps({'name': 'myfile.txt', 'description': 'My file'})
+file_content = 'File content here'
+
+body = f'''--{boundary}\r
+Content-Type: application/json; charset=UTF-8\r
+\r
+{metadata}\r
+--{boundary}\r
+Content-Type: text/plain\r
+\r
+{file_content}\r
+--{boundary}--'''.encode()
+
+url = 'https://gateway.maton.ai/google-drive/upload/drive/v3/files?uploadType=multipart'
+req = urllib.request.Request(url, data=body, method='POST')
+req.add_header('Authorization', f'Bearer {os.environ["MATON_API_KEY"]}')
+req.add_header('Content-Type', f'multipart/related; boundary={boundary}')
+response = urllib.request.urlopen(req)
+```
+
+### Resumable Upload (Large Files)
+
+For large files (recommended for files > 5MB). This approach:
+1. Initiates a session - Gets an upload URI
+2. Uploads in chunks - Sends file in pieces
+3. Supports resume - Can continue from where it left off if interrupted
+
+**Step 1: Initiate Upload Session**
+
+```bash
+POST /google-drive/upload/drive/v3/files?uploadType=resumable
+Content-Type: application/json; charset=UTF-8
+X-Upload-Content-Type: application/octet-stream
+X-Upload-Content-Length: <file_size>
+
+{"name": "large_file.bin"}
+```
+
+Response includes `Location` header with the upload URI.
+
+**Step 2: Upload Content**
+
+```bash
+PUT <upload_uri>
+Content-Length: <file_size>
+Content-Type: application/octet-stream
+
+<file content>
+```
+
+**Python Example (Complete):**
+```python
+import urllib.request, os, json
+
+file_path = '/path/to/large_file.bin'
+file_size = os.path.getsize(file_path)
+
+# Step 1: Initiate resumable upload session
+url = 'https://gateway.maton.ai/google-drive/upload/drive/v3/files?uploadType=resumable'
+metadata = json.dumps({'name': 'large_file.bin'}).encode()
+
+req = urllib.request.Request(url, data=metadata, method='POST')
+req.add_header('Authorization', f'Bearer {os.environ["MATON_API_KEY"]}')
+req.add_header('Content-Type', 'application/json; charset=UTF-8')
+req.add_header('X-Upload-Content-Type', 'application/octet-stream')
+req.add_header('X-Upload-Content-Length', str(file_size))
+
+response = urllib.request.urlopen(req)
+upload_uri = response.headers['Location']
+
+# Step 2: Upload file in chunks (e.g., 5MB chunks)
+chunk_size = 5 * 1024 * 1024
+with open(file_path, 'rb') as f:
+    offset = 0
+    while offset < file_size:
+        chunk = f.read(chunk_size)
+        end = offset + len(chunk) - 1
+
+        req = urllib.request.Request(upload_uri, data=chunk, method='PUT')
+        req.add_header('Content-Length', str(len(chunk)))
+        req.add_header('Content-Range', f'bytes {offset}-{end}/{file_size}')
+
+        response = urllib.request.urlopen(req)
+        offset += len(chunk)
+
+result = json.load(response)
+print(f"Uploaded: {result['id']}")
+```
+
+**Resuming Interrupted Uploads:**
+
+If an upload is interrupted, query the upload URI to get current status:
+
+```python
+req = urllib.request.Request(upload_uri, method='PUT')
+req.add_header('Content-Length', '0')
+req.add_header('Content-Range', 'bytes */*')
+response = urllib.request.urlopen(req)
+# Check Range header in response to get current offset
+```
+
+### Update File Content
+
+To update an existing file's content:
+
+```bash
+PATCH /google-drive/upload/drive/v3/files/{fileId}?uploadType=media
+Content-Type: text/plain
+
+<new file content>
+```
+
+**Python Example:**
+```python
+import urllib.request, os
+
+file_id = 'YOUR_FILE_ID'
+new_content = b'Updated file content!'
+
+url = f'https://gateway.maton.ai/google-drive/upload/drive/v3/files/{file_id}?uploadType=media'
+req = urllib.request.Request(url, data=new_content, method='PATCH')
+req.add_header('Authorization', f'Bearer {os.environ["MATON_API_KEY"]}')
+req.add_header('Content-Type', 'text/plain')
+response = urllib.request.urlopen(req)
+```
+
+### Upload to Specific Folder
+
+Include the folder ID in the metadata:
+
+```python
+metadata = json.dumps({
+    'name': 'myfile.txt',
+    'parents': ['FOLDER_ID']
+})
+```
+
 ### Share File
 
 ```bash
@@ -317,6 +506,10 @@ response = requests.get(
 - Use `fields` parameter to limit response data
 - Pagination uses `pageToken` from previous response's `nextPageToken`
 - Export is for Google Workspace files only
+- **Upload Types**: Use `uploadType=media` for simple uploads (up to 5MB), `uploadType=multipart` for uploads with metadata (up to 5MB), `uploadType=resumable` for large files (recommended for > 5MB)
+- **Upload Endpoint**: File uploads use `/upload/drive/v3/files` (note the `/upload` prefix)
+- **Resumable Uploads**: For large files, use resumable uploads with chunked transfer (256KB minimum chunk size, 5MB recommended)
+- **Max File Size**: Google Drive supports files up to 5TB
 - IMPORTANT: When using curl commands, use `curl -g` when URLs contain brackets (`fields[]`, `sort[]`, `records[]`) to disable glob parsing
 - IMPORTANT: When piping curl output to `jq` or other commands, environment variables like `$MATON_API_KEY` may not expand correctly in some shell environments. You may get "Invalid API key" errors when piping.
 
@@ -364,6 +557,8 @@ EOF
 - [Update File](https://developers.google.com/drive/api/reference/rest/v3/files/update)
 - [Delete File](https://developers.google.com/drive/api/reference/rest/v3/files/delete)
 - [Export File](https://developers.google.com/drive/api/reference/rest/v3/files/export)
+- [Upload Files](https://developers.google.com/drive/api/guides/manage-uploads)
+- [Resumable Uploads](https://developers.google.com/drive/api/guides/manage-uploads#resumable)
 - [Search Query Syntax](https://developers.google.com/drive/api/guides/search-files)
 - [Maton Community](https://discord.com/invite/dBfFAcefs2)
 - [Maton Support](mailto:support@maton.ai)
