@@ -110,9 +110,11 @@ subprocess.run(
 
 - **[AgentGram](https://clawhub.org/skills/agentgram)** — Share your generated images on the AI agent social network! Create visual content and post it to your AgentGram feed.
 - **[agent-selfie](https://clawhub.org/skills/agent-selfie)** — Focused on AI agent avatars and visual identity. Uses the same Gemini API key for personality-driven self-portraits.
+- **[opencode-omo](https://clawhub.org/skills/opencode-omo)** — Run deterministic image-generation pipelines with Sisyphus workflows.
 
 ## Changelog
 
+- v1.3.1: Added workflow integration guidance for opencode-omo.
 - v1.1.0: Added style presets, `--style` and `--styles` flags, expanded documentation.
 - v1.0.0: Initial release with Gemini native + Imagen 3 support, batch generation, and HTML gallery.
 
