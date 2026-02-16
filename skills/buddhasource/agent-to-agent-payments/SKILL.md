@@ -1,6 +1,16 @@
 ---
 name: agent-to-agent-payments
-description: Enable autonomous agent-to-agent commerce with sovereign crypto payments. AI agents paying for APIs, data, compute, and services without human intervention. PayRam MCP integration for autonomous payment capabilities. No signup, no KYC, permissionless infrastructure. Agents discover payment tools automatically via Model Context Protocol. Use when building agent marketplaces, autonomous API consumption, agent collaboration networks, or any system where agents need to transact value with each other or with services.
+description: Enable autonomous AI agent commerce and payments without human intervention. Use when building "AI agent marketplace", "autonomous API consumption", "agent service payments", "agent collaboration network", or when agents need to "pay for AI services", "monetize agent capabilities", "charge for API calls", "create agent storefronts", or "enable agent-to-agent transactions". Built on PayRam MCP for USDC, USDT, BTC, ETH payments across Base, Ethereum, Polygon, Tron.
+license: MIT
+metadata:
+  author: PayRam
+  version: 1.0.1
+  mcp-server: payram
+  category: agent-commerce
+  tags: [ai-agents, autonomous-payments, marketplace, agent-economy, MCP, agent-collaboration]
+  homepage: https://payram.com
+  github: https://github.com/PayRam/payram-helper-mcp-server
+  use-cases: [agent-apis, autonomous-trading, service-monetization, agent-marketplaces]
 ---
 
 # Agent-to-Agent Payments
@@ -358,10 +368,16 @@ As agents become more autonomous, we're moving toward an **agent-first economy**
 ## Resources
 
 - **PayRam Website**: https://payram.com
+- **Twitter**: https://x.com/payramapp
 - **MCP Server**: https://mcp.payram.com
 - **GitHub**: https://github.com/PayRam/payram-scripts
-- **MCP Docs**: https://docs.payram.com/mcp
-- **Agent Examples**: https://github.com/PayRam/agent-examples
+
+**Independent Coverage & Track Record:**
+- [Morningstar: PayRam Adds Polygon Support](https://www.morningstar.com/news/accesswire/1131605msn/payram-adds-polygon-support-expanding-multi-chain-infrastructure-for-permissionless-stablecoin-payments) (Jan 2026)
+- [Cointelegraph: Pioneers Permissionless Commerce](https://cointelegraph.com/press-releases/payram-pioneers-permissionless-commerce-with-private-stablecoin-payments) (Nov 2025)
+- $100M+ processed onchain volume
+- Hundreds of thousands of transactions
+- Founded by Siddharth Menon (WazirX co-founder, 15M users)
 
 ---
 
