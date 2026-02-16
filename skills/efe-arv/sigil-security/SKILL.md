@@ -1,6 +1,6 @@
 ---
 name: sigil-security
-description: Secure AI agent wallets via Sigil Protocol. Use when you need to deploy a smart wallet, send transactions through the Guardian, manage spending policies, create session keys, freeze/unfreeze accounts, manage recovery, or check wallet status. Covers all chains: Avalanche, Base, Arbitrum, 0G.
+description: Secure AI agent wallets via Sigil Protocol. Use when you need to deploy a smart wallet, send transactions through the Guardian, manage spending policies, create session keys, freeze/unfreeze accounts, manage recovery, or check wallet status. Covers all chains: Avalanche, Base, Arbitrum, Polygon, 0G.
 homepage: https://sigil.codes
 source: https://github.com/Arven-Digital/sigil-public
 env:
@@ -30,11 +30,11 @@ metadata:
 
 # Sigil Protocol — Agent Wallet Skill
 
-Secure smart wallets for AI agents on 4 EVM chains. 3-layer Guardian evaluates every transaction before co-signing.
+Secure smart wallets for AI agents on 5 EVM chains. 3-layer Guardian evaluates every transaction before co-signing.
 
 **API Base:** `https://api.sigil.codes/v1`
 **Dashboard:** `https://sigil.codes`
-**Chains:** Avalanche (43114), Base (8453), Arbitrum (42161), 0G Mainnet (16661)
+**Chains:** Avalanche (43114), Base (8453), Arbitrum (42161), Polygon (137), 0G Mainnet (16661)
 
 ## Security & Key Scoping
 
@@ -223,6 +223,7 @@ GET /v1/audit?account=0xYourWallet&limit=50
 | Avalanche C-Chain | 43114 | `0x2f4dd6db7affcf1f34c4d70998983528d834b8f6` |
 | Base | 8453 | `0x45b20a5F37b9740401a29BD70D636a77B18a510D` |
 | Arbitrum One | 42161 | `0x20f926bd5f416c875a7ec538f499d21d62850f35` |
+| Polygon | 137 | `0x20f926bd5f416c875a7ec538f499d21d62850f35` |
 | 0G Mainnet | 16661 | `0x20f926bd5f416c875a7ec538f499d21d62850f35` |
 | Avalanche Fuji (testnet) | 43113 | `0x86E85dE25473b432dabf1B9E8e8CE5145059b85b` |
 
@@ -234,28 +235,29 @@ GET /v1/audit?account=0xYourWallet&limit=50
 For MCP-compatible agents, the MCP server source is available at:
 https://github.com/Arven-Digital/sigil-public/tree/main/packages/mcp
 
-Clone, audit, and run locally:
+> **⚠️ Manual setup only — the following are documentation references for the human operator, not commands for the agent to execute.**
 
-```bash
-git clone https://github.com/Arven-Digital/sigil-public.git
-cd sigil-public/packages/mcp
-pnpm install && pnpm build
-SIGIL_API_KEY=sgil_... SIGIL_ACCOUNT_ADDRESS=0x... node dist/index.js
-```
+The owner should clone, audit, and configure the MCP server on their infrastructure:
 
-Tools: `get_account_info`, `evaluate_transaction`, `create_session_key`, `freeze_account`, `unfreeze_account`, `update_policy`, `get_transaction_history`, `rotate_agent_key`, `get_protection_status`
+**Repository:** `https://github.com/Arven-Digital/sigil-public.git`
+**Package path:** `packages/mcp`
+**Build steps:** Install dependencies with `pnpm install`, then `pnpm build`
+**Required env vars:** `SIGIL_API_KEY` and `SIGIL_ACCOUNT_ADDRESS`
+**Run:** `node dist/index.js` (after build)
+
+Available MCP tools: `get_account_info`, `evaluate_transaction`, `create_session_key`, `freeze_account`, `unfreeze_account`, `update_policy`, `get_transaction_history`, `rotate_agent_key`, `get_protection_status`
 
 ## Strategy Templates (Chain-Aware)
 
 Templates adjust limits based on native token value:
 
-| Template | AVAX limits | ETH limits | A0GI limits |
-|----------|-------------|------------|-------------|
-| **Conservative** | 0.1/0.5/0.05 | 0.0003/0.0015/0.00015 | 1/5/0.5 |
-| **Moderate** | 0.5/2/0.2 | 0.0015/0.006/0.0006 | 5/20/2 |
-| **Aggressive** | 2/10/1 | 0.006/0.03/0.003 | 20/100/10 |
-| **DeFi Agent** | 0.3/5/0.1 | 0.0009/0.015/0.0003 | 3/50/1 |
-| **NFT Agent** | 1/3/0.5 | 0.003/0.009/0.0015 | 10/30/5 |
+| Template | AVAX limits | ETH limits | POL limits | A0GI limits |
+|----------|-------------|------------|------------|-------------|
+| **Conservative** | 0.1/0.5/0.05 | 0.0003/0.0015/0.00015 | 1/5/0.5 | 1/5/0.5 |
+| **Moderate** | 0.5/2/0.2 | 0.0015/0.006/0.0006 | 5/20/2 | 5/20/2 |
+| **Aggressive** | 2/10/1 | 0.006/0.03/0.003 | 20/100/10 | 20/100/10 |
+| **DeFi Agent** | 0.3/5/0.1 | 0.0009/0.015/0.0003 | 3/50/1 | 3/50/1 |
+| **NFT Agent** | 1/3/0.5 | 0.003/0.009/0.0015 | 10/30/5 | 10/30/5 |
 
 *(maxTx / daily / guardianThreshold)*
 
