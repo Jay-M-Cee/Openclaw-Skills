@@ -1,0 +1,11 @@
+{
+  "owner": "apexfork",
+  "slug": "ipfs-server",
+  "displayName": "IPFS Server",
+  "latest": {
+    "version": "0.1.0",
+    "publishedAt": 1771219685344,
+    "commit": null
+  },
+  "history": []
+}
