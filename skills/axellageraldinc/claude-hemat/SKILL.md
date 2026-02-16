@@ -23,16 +23,25 @@ sessions_spawn(
 1. Simple Q&A - What, When, Who, Where
 2. Casual chat - No reasoning needed
 3. Quick lookups
-4. Simple tasks - May but not limited to repetitive tasks
-5. Concise output
+4. File lookups
+5. Simple tasks - May but not limited to repetitive tasks
+6. Cron Jobs, if it needs reasoning, THEN ESCALATE TO THE NEXT ADVANCED MODEL
+6. Basically everything that doesn't need any thinking
+7. Provide concise output, just plain answer, no explaining
+8. DO NOT CODE WITH HAIKU 4.5
+9. DO NOT ANALYZE USING HAIKU 4.5
+10. DO NOT ATTEMPT ANY REASONING USING HAIKU 4.5
+11. If you think the request does not fall into point 1-6, THEN ESCALATE TO THE NEXT ADVANCED MODEL
+11. If you think you will violate point 8-10, THEN ESCALATE TO THE NEXT ADVANCED MODEL
 
 ## Sonnet 4.5
 1. Analysis
-2. Code (more than 10 lines of codes)
+2. Code
 3. Planning
 4. Reasoning
 5. Comparisons
 6. Reporting
+7. If you think the request is pretty critical to the user, THEN ESCALATE TO THE NEXT ADVANCED MODEL
 
 ## Opus 4.6
 1. Deep research
@@ -41,12 +50,7 @@ sessions_spawn(
 4. Extreme complex planning
 5. Detailed explanation
 
-# Prohibitions
-1. Never code using Haiku 4.5
-2. Never analyze using Haiku 4.5
-3. Never attempt reasoning using Haiku 4.5
-
 # Other Notes
 1. When the user asks you to use a specific model, use it
-2. Always put which model is used in outputs
+2. Always put which model is used IN EVERY OUTPUTS
 3. After you are done with more advanced models (Sonnet 4.5 or Opus 4.6), revert back to Haiku 4.5 as the default model
