@@ -3,9 +3,15 @@
   "slug": "tellermcp",
   "displayName": "Teller MCP",
   "latest": {
-    "version": "0.1.0",
-    "publishedAt": 1771204201402,
-    "commit": "https://github.com/openclaw/skills/commit/5948e585ab777e37eef08a6d9b7c69914f905c71"
+    "version": "0.1.1",
+    "publishedAt": 1771204565628,
+    "commit": null
   },
-  "history": []
+  "history": [
+    {
+      "version": "0.1.0",
+      "publishedAt": 1771204201402,
+      "commit": "https://github.com/openclaw/skills/commit/5948e585ab777e37eef08a6d9b7c69914f905c71"
+    }
+  ]
 }
